@@ -1,0 +1,13 @@
+# Terraform files
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+
+# Certificate files (NEVER COMMIT!)
+../certificates/
+*.pem
+*.key
+*.crt
+certificate-info.json

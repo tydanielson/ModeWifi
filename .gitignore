@@ -5,6 +5,20 @@
 .vscode/launch.json
 .vscode/ipch
 
+# AWS IoT Certificates (NEVER COMMIT!)
+certificates/
+*.pem
+*.key
+*.crt
+certificate-info.json
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+
 # Backup files
 *.old
 *.backup

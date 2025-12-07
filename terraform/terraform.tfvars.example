@@ -1,0 +1,6 @@
+# Local Terraform variables - NOT committed to git
+# Copy terraform.tfvars.example to terraform.tfvars and customize
+
+aws_region  = "us-east-1"
+aws_profile = "default"  # Your AWS CLI profile name
+thing_name  = "storyteller-van-01"
