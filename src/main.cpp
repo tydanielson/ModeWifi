@@ -20,20 +20,18 @@
 
 #include <Arduino.h>
 #include <CAN.h>
-#include <WiFi.h>
-#include <WebServer.h>
 
 // Project headers
 #include "can_messages.h"
 #include "van_state.h"
 #include "can_decoder.h"
+#include "wifi_manager.h"
+#include "aws_iot.h"
 #include "web_server.h"
 
-// WiFi Access Point settings
-const char* ap_ssid = "VanControl";
-const char* ap_password = "vanlife2025";
-
 // Global instances
+WiFiManager wifiManager;
+AWSIoT awsIot;
 WebServer server(80);
 VanState vanState;
 
@@ -52,14 +50,25 @@ MessageTracker trackedMessages[50];
 int trackedCount = 0;
 
 // Task handles for dual-core operation
-TaskHandle_t webServerTask;
-TaskHandle_t canBusTask;
+TaskHandle_t networkTask;  // WiFi + AWS IoT + Web Server on Core 0
+TaskHandle_t canBusTask;    // CAN bus processing on Core 1
 
-// Web server task - runs on Core 0
-void webServerTaskFunction(void * parameter) {
+// Network task - runs on Core 0 (handles WiFi, MQTT, Web)
+void networkTaskFunction(void * parameter) {
+  unsigned long lastTelemetryCheck = 0;
+  
   for(;;) {
-    server.handleClient();
-    vTaskDelay(1); // Yield to other tasks
+    wifiManager.loop();           // Check WiFi connection
+    awsIot.loop();                // Handle MQTT reconnection
+    server.handleClient();         // Handle web requests
+    
+    // Only try to publish telemetry once per second (function has 30s internal throttle)
+    if (millis() - lastTelemetryCheck >= 1000) {
+      lastTelemetryCheck = millis();
+      awsIot.publishTelemetry(vanState);
+    }
+    
+    vTaskDelay(10 / portTICK_PERIOD_MS); // Small delay for responsiveness
   }
 }
 
@@ -67,24 +76,24 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  Serial.println("\n\n=== VAN CONTROL SYSTEM ===");
+  Serial.println("\n\n=== VAN CONTROL SYSTEM v2.0 ===");
   Serial.println("ESP32 + SN65HVD230 CAN Transceiver");
+  Serial.println("AWS IoT Core Integration");
   
-  // Start WiFi Access Point
-  Serial.println("\n📶 Starting WiFi Access Point...");
-  WiFi.softAP(ap_ssid, ap_password);
-  IPAddress IP = WiFi.softAPIP();
-  Serial.print("   SSID: ");
-  Serial.println(ap_ssid);
-  Serial.print("   Password: ");
-  Serial.println(ap_password);
-  Serial.print("   IP Address: ");
-  Serial.println(IP);
-  Serial.println("   Connect and go to: http://192.168.4.1");
+  // Initialize WiFi (tries Starlink, falls back to AP)
+  wifiManager.begin();
+  
+  // Initialize AWS IoT (only if connected to Starlink)
+  if (wifiManager.isStationMode()) {
+    awsIot.begin();
+  } else {
+    Serial.println("⚠️ AWS IoT disabled in AP mode (need Starlink)");
+  }
   
   // Setup web server
+  Serial.println("\n🌐 Starting web server...");
   setupWebServer();
-  Serial.println("✓ Web server started!");
+  Serial.println("✓ Web server started on port 80");
   
   // Set CAN pins and start
   CAN.setPins(CAN_RX_PIN, CAN_TX_PIN);
@@ -105,19 +114,20 @@ void setup() {
   Serial.println("✓ CAN bus started successfully!");
   Serial.println("Listening for messages...\n");
   
-  // Create web server task on Core 0 (handles WiFi/networking)
+  // Create network task on Core 0 (handles WiFi/MQTT/Web)
   xTaskCreatePinnedToCore(
-    webServerTaskFunction,   // Task function
-    "WebServer",             // Name
-    10000,                   // Stack size (bytes)
-    NULL,                    // Parameter
-    1,                       // Priority
-    &webServerTask,          // Task handle
-    0                        // Core 0 (WiFi/networking)
+    networkTaskFunction,         // Task function
+    "Network",                   // Name
+    16000,                       // Stack size (bytes) - increased for TLS
+    NULL,                        // Parameter
+    1,                           // Priority
+    &networkTask,                // Task handle
+    0                            // Core 0 (WiFi/networking)
   );
   
-  Serial.println("✓ Web server running on Core 0");
-  Serial.println("✓ CAN bus running on Core 1");
+  Serial.println("✓ Network task running on Core 0 (WiFi + AWS IoT + Web)");
+  Serial.println("✓ CAN bus running on Core 1 (main loop)");
+  Serial.println("\n=== SYSTEM READY ===\n");
 }
 
 void loop() {

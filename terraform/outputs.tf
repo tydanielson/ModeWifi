@@ -32,3 +32,56 @@ output "certificate_instructions" {
     IoT Endpoint: ${data.aws_iot_endpoint.endpoint.endpoint_address}
   EOT
 }
+
+# Cloud Dashboard Outputs
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID"
+  value       = aws_cloudfront_distribution.webapp.id
+}
+
+output "cloudfront_domain" {
+  description = "CloudFront distribution domain name"
+  value       = "https://${aws_cloudfront_distribution.webapp.domain_name}"
+}
+
+output "webapp_bucket" {
+  description = "S3 bucket for web application"
+  value       = aws_s3_bucket.webapp.id
+}
+
+output "api_gateway_url" {
+  description = "API Gateway endpoint URL"
+  value       = aws_apigatewayv2_stage.webapp.invoke_url
+}
+
+output "api_endpoints" {
+  description = "API endpoints for the web application"
+  value = {
+    get_telemetry        = "${aws_apigatewayv2_stage.webapp.invoke_url}/telemetry"
+    get_latest_telemetry = "${aws_apigatewayv2_stage.webapp.invoke_url}/telemetry/latest"
+    send_command         = "${aws_apigatewayv2_stage.webapp.invoke_url}/command"
+  }
+}
+
+output "deployment_instructions" {
+  description = "Instructions for deploying the web application"
+  value       = <<-EOT
+    Web Application Deployment:
+    
+    1. CloudFront URL: https://${aws_cloudfront_distribution.webapp.domain_name}
+    2. API Gateway URL: ${aws_apigatewayv2_stage.webapp.invoke_url}
+    
+    To deploy the frontend:
+    - cd ../dashboard
+    - npm install
+    - npm run build
+    - aws s3 sync build/ s3://${aws_s3_bucket.webapp.id}/ --delete
+    - aws cloudfront create-invalidation --distribution-id ${aws_cloudfront_distribution.webapp.id} --paths "/*"
+    
+    API Endpoints:
+    - GET  ${aws_apigatewayv2_stage.webapp.invoke_url}/telemetry
+    - GET  ${aws_apigatewayv2_stage.webapp.invoke_url}/telemetry/latest
+    - POST ${aws_apigatewayv2_stage.webapp.invoke_url}/command
+  EOT
+}
+

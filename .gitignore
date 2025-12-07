@@ -12,12 +12,19 @@ certificates/
 *.crt
 certificate-info.json
 
+# ESP32 Config with WiFi credentials and certificates
+src/config.h
+
 # Terraform
 terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/.terraform.lock.hcl
 terraform/terraform.tfvars
+
+# Lambda build artifacts (Terraform auto-packages)
+lambda/*.zip
+lambda/build.sh
 
 # Backup files
 *.old

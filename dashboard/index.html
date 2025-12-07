@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storyteller Van Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .status-bar {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .status-connected {
+            background: #4CAF50;
+        }
+
+        .status-disconnected {
+            background: #f44336;
+        }
+
+        .vitals-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 10px;
+        }
+
+        .pdm-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .pdm-channel {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .pdm-channel.active {
+            background: rgba(76, 175, 80, 0.3);
+            border: 2px solid #4CAF50;
+        }
+
+        .pdm-channel-name {
+            font-size: 0.8rem;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+
+        .pdm-channel-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2rem;
+        }
+
+        .error {
+            background: rgba(244, 67, 54, 0.3);
+            border: 2px solid #f44336;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .status-bar {
+                flex-direction: column;
+            }
+
+            .vitals-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="refresh-indicator" id="refreshIndicator" style="display: none;">
+        <div class="spinner"></div>
+        <span>Updating...</span>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>🚐 Storyteller Van Monitor</h1>
+            <p class="subtitle">Real-time Telemetry Dashboard</p>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">Connection</div>
+                <span class="status-badge status-disconnected" id="connectionStatus">Connecting...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Van Update</div>
+                <div class="status-value" id="vanUpdate">--:--</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Web Update</div>
+                <div class="status-value" id="webUpdate">--:--</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Uptime</div>
+                <div class="status-value" id="uptime">--</div>
+            </div>
+        </div>
+
+        <div id="content" class="loading">
+            <div class="spinner" style="margin: 0 auto 20px;"></div>
+            <div>Loading telemetry data...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://3htjuhv4g7.execute-api.us-east-1.amazonaws.com/prod';
+        let updateInterval;
+
+        const PDM_CHANNELS = {
+            pdm1: [
+                'Solar Backup', 'Cargo Lights', 'Reading Light', 'Ceiling Lights',
+                'Water Pump', 'Water Heater', 'Starlink', 'Refrig', 
+                'Awning Light', 'Porch Light', 'Rear Camera', 'Spare 1'
+            ],
+            pdm2: [
+                'Roof Fan 1', 'Roof Fan 2', 'Roof Fan 3', 'Roof Fan 4',
+                'Front Heater', 'Rear Heater', 'Shore Power', 'Solar Power',
+                'Alternator', 'DC-DC Charger', 'Inverter', 'Spare 2'
+            ]
+        };
+
+        function formatUptime(milliseconds) {
+            const seconds = Math.floor(milliseconds / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+
+            if (days > 0) return `${days}d ${hours % 24}h`;
+            if (hours > 0) return `${hours}h ${minutes % 60}m`;
+            if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+            return `${seconds}s`;
+        }
+
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString();
+        }
+
+        function renderPDMChannels(channels, names, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            channels.forEach((value, index) => {
+                const channelDiv = document.createElement('div');
+                channelDiv.className = `pdm-channel ${value === 1 ? 'active' : ''}`;
+                channelDiv.innerHTML = `
+                    <div class="pdm-channel-name">${names[index]}</div>
+                    <div class="pdm-channel-value">${value === 1 ? 'ON' : 'OFF'}</div>
+                `;
+                container.appendChild(channelDiv);
+            });
+        }
+
+        async function fetchTelemetry() {
+            const indicator = document.getElementById('refreshIndicator');
+            indicator.style.display = 'flex';
+
+            try {
+                const response = await fetch(`${API_URL}/telemetry/latest`);
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    updateUI(result.data, result.server_timestamp);
+                    
+                    // Update connection status
+                    const statusBadge = document.getElementById('connectionStatus');
+                    statusBadge.textContent = 'Connected';
+                    statusBadge.className = 'status-badge status-connected';
+                } else {
+                    showError('No telemetry data available');
+                }
+            } catch (error) {
+                console.error('Error fetching telemetry:', error);
+                showError(`Failed to fetch data: ${error.message}`);
+                
+                // Update connection status
+                const statusBadge = document.getElementById('connectionStatus');
+                statusBadge.textContent = 'Disconnected';
+                statusBadge.className = 'status-badge status-disconnected';
+            } finally {
+                indicator.style.display = 'none';
+            }
+        }
+
+        function updateUI(data, serverTimestamp) {
+            // Use server timestamp if available, otherwise estimate from current time
+            const dataTimestamp = serverTimestamp ? new Date(serverTimestamp) : new Date();
+            const webTimestamp = new Date();
+            
+            // Update status bar
+            document.getElementById('vanUpdate').textContent = formatTime(dataTimestamp);
+            document.getElementById('webUpdate').textContent = formatTime(webTimestamp);
+            document.getElementById('uptime').textContent = formatUptime(parseInt(data.timestamp));
+
+            // Render main content
+            const content = document.getElementById('content');
+            content.className = '';
+            content.innerHTML = `
+                <div class="vitals-section">
+                    <div class="card">
+                        <h2>⚡ Battery</h2>
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 3rem; font-weight: bold;">${data.battery_voltage.toFixed(1)}</div>
+                            <div style="opacity: 0.8;">Volts</div>
+                            <div style="margin-top: 15px; font-size: 0.85rem; opacity: 0.7;">Last: ${formatTime(dataTimestamp)}</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>🌡️ Temperature</h2>
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 3rem; font-weight: bold;">${data.glycol_temp.toFixed(1)}</div>
+                            <div style="opacity: 0.8;">°C</div>
+                            <div style="margin-top: 15px; font-size: 0.85rem; opacity: 0.7;">Last: ${formatTime(dataTimestamp)}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 20px;">
+                    <h2>💡 PDM1 - Lights & Pumps</h2>
+                    <div class="pdm-grid" id="pdm1-grid"></div>
+                </div>
+
+                <div class="card">
+                    <h2>🔌 PDM2 - Fans & Power</h2>
+                    <div class="pdm-grid" id="pdm2-grid"></div>
+                </div>
+            `;
+
+            // Combine PDM channel arrays
+            const pdm1Channels = [
+                ...data.pdm1_ch1_6,
+                ...data.pdm1_ch7_12
+            ];
+            const pdm2Channels = [
+                ...data.pdm2_ch1_6,
+                ...data.pdm2_ch7_12
+            ];
+
+            renderPDMChannels(pdm1Channels, PDM_CHANNELS.pdm1, 'pdm1-grid');
+            renderPDMChannels(pdm2Channels, PDM_CHANNELS.pdm2, 'pdm2-grid');
+        }
+
+        function showError(message) {
+            const content = document.getElementById('content');
+            content.className = 'error';
+            content.innerHTML = `
+                <h2>❌ Error</h2>
+                <p style="margin-top: 10px;">${message}</p>
+                <p style="margin-top: 20px; opacity: 0.8;">Retrying in 5 seconds...</p>
+            `;
+        }
+
+        // Initialize
+        fetchTelemetry();
+        updateInterval = setInterval(fetchTelemetry, 5000); // Update every 5 seconds
+    </script>
+</body>
+</html>

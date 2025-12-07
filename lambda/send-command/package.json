@@ -1,0 +1,9 @@
+{
+  "name": "send-command",
+  "version": "1.0.0",
+  "description": "Lambda function to send commands to van via AWS IoT Core",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-iot-data-plane": "^3.0.0"
+  }
+}
