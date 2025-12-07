@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storyteller Van Monitor</title>
+    <title>Skadi - Storyteller Van Monitor</title>
     <style>
         * {
             margin: 0;
@@ -13,7 +13,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #4a5f8f 0%, #667eea 50%, #89a8d4 100%);
             color: #fff;
             min-height: 100vh;
             padding: 20px;
@@ -201,8 +201,8 @@
 
     <div class="container">
         <header>
-            <h1>🚐 Storyteller Van Monitor</h1>
-            <p class="subtitle">Real-time Telemetry Dashboard</p>
+            <h1>❄️ Skadi</h1>
+            <p class="subtitle">Norse Goddess of Winter & the Hunt · Storyteller Van Telemetry</p>
         </header>
 
         <div class="status-bar">
@@ -326,7 +326,7 @@
             content.innerHTML = `
                 <div class="vitals-section">
                     <div class="card">
-                        <h2>⚡ Battery</h2>
+                        <h2>⚡ Power Reserve</h2>
                         <div style="text-align: center; padding: 20px;">
                             <div style="font-size: 3rem; font-weight: bold;">${data.battery_voltage.toFixed(1)}</div>
                             <div style="opacity: 0.8;">Volts</div>
@@ -334,7 +334,7 @@
                         </div>
                     </div>
                     <div class="card">
-                        <h2>🌡️ Temperature</h2>
+                        <h2>❄️ Glycol Temp</h2>
                         <div style="text-align: center; padding: 20px;">
                             <div style="font-size: 3rem; font-weight: bold;">${data.glycol_temp.toFixed(1)}</div>
                             <div style="opacity: 0.8;">°C</div>
@@ -344,12 +344,12 @@
                 </div>
 
                 <div class="card" style="margin-bottom: 20px;">
-                    <h2>💡 PDM1 - Lights & Pumps</h2>
+                    <h2>🏹 Systems - Lights & Water</h2>
                     <div class="pdm-grid" id="pdm1-grid"></div>
                 </div>
 
                 <div class="card">
-                    <h2>🔌 PDM2 - Fans & Power</h2>
+                    <h2>🛡️ Systems - Climate & Power</h2>
                     <div class="pdm-grid" id="pdm2-grid"></div>
                 </div>
             `;
