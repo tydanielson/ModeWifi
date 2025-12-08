@@ -5,7 +5,7 @@ variable "aws_region" {
 }
 
 variable "aws_profile" {
-  description = "AWS CLI profile to use (e.g., 'default' or 'skadi')"
+  description = "AWS CLI profile to use (e.g., 'default' or 'production')"
   type        = string
   default     = "default"
 }

@@ -72,7 +72,7 @@ if [ $? -eq 0 ]; then
     echo "3. Run this script again to see messages appear"
     echo ""
     echo "4. Check DynamoDB:"
-    echo "   aws dynamodb scan --table-name $THING_NAME-telemetry --profile skadi | jq '.Items[0]'"
+    echo "   aws dynamodb scan --table-name $THING_NAME-telemetry --profile default | jq '.Items[0]'"
 else
     echo ""
     echo "❌ Failed to publish message"

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Skadi - Storyteller Van Monitor</title>
+    <title>Storyteller Van Monitor</title>
     <style>
         * {
             margin: 0;
@@ -201,8 +201,8 @@
 
     <div class="container">
         <header>
-            <h1>❄️ Skadi</h1>
-            <p class="subtitle">Norse Goddess of Winter & the Hunt · Storyteller Van Telemetry</p>
+            <h1 id="vanHeader">🚐 <span id="vanName">Storyteller Van</span></h1>
+            <p class="subtitle">Real-time Telemetry Monitor</p>
         </header>
 
         <div class="status-bar">
@@ -231,8 +231,16 @@
     </div>
 
     <script>
-        const API_URL = 'https://3htjuhv4g7.execute-api.us-east-1.amazonaws.com/prod';
+        // Van personalization - change this to match your VAN_NAME in config.h
+        const VAN_NAME = "Storyteller Van";  // e.g., "Wanderlust", "Odyssey", "Adventure", or "Storyteller Van"
+        
+        // API URL - This gets replaced by deploy script with actual Terraform output
+        // Template: ${API_GATEWAY_URL}
+        const API_URL = '${API_GATEWAY_URL}';
         let updateInterval;
+
+        // Update page title with van name
+        document.title = `${VAN_NAME} Monitor`;
 
         const PDM_CHANNELS = {
             pdm1: [
@@ -264,16 +272,44 @@
             return date.toLocaleTimeString();
         }
 
+        function celsiusToFahrenheit(celsius) {
+            return (celsius * 9/5) + 32;
+        }
+
+        function getHeatSourceName(heatSource) {
+            // Decode heat source byte
+            switch(heatSource) {
+                case 0x00: return 'Off';
+                case 0x04: return 'Diesel Burner';
+                case 0x08: return 'Furnace';
+                case 0x0C: return 'Both';
+                default: return 'Unknown';
+            }
+        }
+
         function renderPDMChannels(channels, names, containerId) {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
 
-            channels.forEach((value, index) => {
+            // Channels is an array of objects [{name, state, amps}, ...]
+            if (!Array.isArray(channels)) {
+                console.error('Expected array, got:', channels);
+                return;
+            }
+
+            channels.forEach((channel, index) => {
+                // Channel is an object with {name, state, amps}
+                const currentDraw = parseFloat(channel.amps) || 0;
+                // Device is ON if it's drawing current OR if state byte says it's on
+                const isActive = currentDraw > 0.05 || channel.state > 0;
+                
                 const channelDiv = document.createElement('div');
-                channelDiv.className = `pdm-channel ${value === 1 ? 'active' : ''}`;
+                channelDiv.className = `pdm-channel ${isActive ? 'active' : ''}`;
                 channelDiv.innerHTML = `
-                    <div class="pdm-channel-name">${names[index]}</div>
-                    <div class="pdm-channel-value">${value === 1 ? 'ON' : 'OFF'}</div>
+                    <div class="pdm-channel-name">${channel.name || 'Unknown'}</div>
+                    <div class="pdm-channel-value">
+                        ${isActive ? 'ON' : 'OFF'}${currentDraw > 0.05 ? ` (${currentDraw.toFixed(2)}A)` : ''}
+                    </div>
                 `;
                 container.appendChild(channelDiv);
             });
@@ -315,8 +351,12 @@
             const dataTimestamp = serverTimestamp ? new Date(serverTimestamp) : new Date();
             const webTimestamp = new Date();
             
+            // Calculate age of data
+            const dataAge = Math.floor((webTimestamp - dataTimestamp) / 1000);
+            const ageWarning = dataAge > 60 ? ` ⚠️ ${dataAge}s old` : '';
+            
             // Update status bar
-            document.getElementById('vanUpdate').textContent = formatTime(dataTimestamp);
+            document.getElementById('vanUpdate').textContent = formatTime(dataTimestamp) + ageWarning;
             document.getElementById('webUpdate').textContent = formatTime(webTimestamp);
             document.getElementById('uptime').textContent = formatUptime(parseInt(data.timestamp));
 
@@ -325,20 +365,50 @@
             content.className = '';
             content.innerHTML = `
                 <div class="vitals-section">
+                    ${data.cabin_temp && data.cabin_temp > -100 ? `
                     <div class="card">
-                        <h2>⚡ Power Reserve</h2>
+                        <h2>🏠 Cabin Temperature</h2>
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 3rem; font-weight: bold;">${celsiusToFahrenheit(data.cabin_temp).toFixed(1)}</div>
+                            <div style="opacity: 0.8;">°F</div>
+                        </div>
+                    </div>
+                    ` : ''}
+                    <div class="card">
+                        <h2>⛽ Van Fuel</h2>
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 3rem; font-weight: bold;">${data.fuel_level !== undefined ? data.fuel_level.toFixed(0) : '--'}</div>
+                            <div style="opacity: 0.8;">%</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>⚡ Battery</h2>
                         <div style="text-align: center; padding: 20px;">
                             <div style="font-size: 3rem; font-weight: bold;">${data.battery_voltage.toFixed(1)}</div>
                             <div style="opacity: 0.8;">Volts</div>
-                            <div style="margin-top: 15px; font-size: 0.85rem; opacity: 0.7;">Last: ${formatTime(dataTimestamp)}</div>
                         </div>
                     </div>
                     <div class="card">
                         <h2>❄️ Glycol Temp</h2>
                         <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 3rem; font-weight: bold;">${data.glycol_temp.toFixed(1)}</div>
-                            <div style="opacity: 0.8;">°C</div>
-                            <div style="margin-top: 15px; font-size: 0.85rem; opacity: 0.7;">Last: ${formatTime(dataTimestamp)}</div>
+                            <div style="font-size: 3rem; font-weight: bold;">${celsiusToFahrenheit(data.glycol_temp).toFixed(1)}</div>
+                            <div style="opacity: 0.8;">°F</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 20px;">
+                    <h2>🔥 Heater Status</h2>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 10px;">
+                        <div style="background: rgba(0, 0, 0, 0.2); padding: 15px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 8px;">Fan Speed</div>
+                            <div style="font-size: 2rem; font-weight: bold;">${data.fan_speed || 0}</div>
+                            <div style="opacity: 0.6; font-size: 0.85rem;">RPM</div>
+                        </div>
+                        <div style="background: rgba(0, 0, 0, 0.2); padding: 15px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 8px;">Heat Source</div>
+                            <div style="font-size: 2rem; font-weight: bold;">0x${(data.heat_source || 0).toString(16).toUpperCase().padStart(2, '0')}</div>
+                            <div style="opacity: 0.6; font-size: 0.85rem;">${getHeatSourceName(data.heat_source || 0)}</div>
                         </div>
                     </div>
                 </div>
@@ -354,15 +424,18 @@
                 </div>
             `;
 
-            // Combine PDM channel arrays
-            const pdm1Channels = [
-                ...data.pdm1_ch1_6,
-                ...data.pdm1_ch7_12
-            ];
-            const pdm2Channels = [
-                ...data.pdm2_ch1_6,
-                ...data.pdm2_ch7_12
-            ];
+            // PDM channels come as array of objects with name, state, and amps
+            // Convert to array if needed (in case API sends object)
+            let pdm1Channels = data.pdm1 || [];
+            let pdm2Channels = data.pdm2 || [];
+            
+            // If it's an object, convert to array
+            if (!Array.isArray(pdm1Channels)) {
+                pdm1Channels = Object.values(pdm1Channels);
+            }
+            if (!Array.isArray(pdm2Channels)) {
+                pdm2Channels = Object.values(pdm2Channels);
+            }
 
             renderPDMChannels(pdm1Channels, PDM_CHANNELS.pdm1, 'pdm1-grid');
             renderPDMChannels(pdm2Channels, PDM_CHANNELS.pdm2, 'pdm2-grid');
@@ -379,6 +452,7 @@
         }
 
         // Initialize
+        document.getElementById('vanName').textContent = VAN_NAME;
         fetchTelemetry();
         updateInterval = setInterval(fetchTelemetry, 5000); // Update every 5 seconds
     </script>

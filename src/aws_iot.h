@@ -28,7 +28,7 @@ private:
   String commandsTopic;
   
 public:
-  AWSIoT() : mqttClient(1024) {  // 1024 byte buffer
+  AWSIoT() : mqttClient(2048) {  // 2048 byte buffer for large nested JSON payloads
     // Build MQTT topics
     telemetryTopic = String("van/") + THING_NAME + "/telemetry";
     statusTopic = String("van/") + THING_NAME + "/status";
@@ -59,7 +59,7 @@ public:
     Serial.printf("   Thing: %s\n", THING_NAME);
     Serial.println("   Using 256dpi/MQTT Library (AWS IoT compatible)");
     Serial.println("   Keep-Alive: 60 seconds");
-    Serial.println("   Buffer: 1024 bytes");
+    Serial.println("   Buffer: 2048 bytes (for large nested JSON)");
     
     // Initial connection attempt
     connect();
@@ -148,7 +148,9 @@ public:
       return;
     }
     
-    StaticJsonDocument<512> doc;
+    Serial.printf("🧠 Free heap: %d bytes\n", ESP.getFreeHeap());
+    
+    StaticJsonDocument<3072> doc;  // Increased size for 24 PDM channels with nested objects + overhead
     
     // Add metadata
     doc["thing_name"] = THING_NAME;
@@ -158,35 +160,40 @@ public:
     // Add van state
     doc["battery_voltage"] = vanState.voltage;
     doc["glycol_temp"] = vanState.glycolTemp;
+    doc["cabin_temp"] = vanState.cabinTemp;
+    doc["fuel_level"] = vanState.fuelLevel;
+    doc["fan_speed"] = vanState.fanSpeed;
+    doc["heat_source"] = vanState.heatSource;
     
-    // PDM1 channels (two 6-channel groups)
-    JsonArray pdm1_1_6 = doc.createNestedArray("pdm1_ch1_6");
-    for (int i = 0; i < 6; i++) {
-      pdm1_1_6.add(vanState.pdm1_ch1_6[i]);
-    }
-    JsonArray pdm1_7_12 = doc.createNestedArray("pdm1_ch7_12");
-    for (int i = 0; i < 6; i++) {
-      pdm1_7_12.add(vanState.pdm1_ch7_12[i]);
+    // PDM1 channels - command states and feedback amps
+    JsonObject pdm1 = doc.createNestedObject("pdm1");
+    for (int i = 1; i <= 12; i++) {
+      JsonObject ch = pdm1.createNestedObject(String(i));
+      ch["name"] = vanState.pdm1[i].name;
+      ch["state"] = vanState.pdm1[i].command;
+      ch["amps"] = serialized(String(vanState.pdm1[i].feedbackAmps, 2));
     }
     
-    // PDM2 channels (two 6-channel groups)
-    JsonArray pdm2_1_6 = doc.createNestedArray("pdm2_ch1_6");
-    for (int i = 0; i < 6; i++) {
-      pdm2_1_6.add(vanState.pdm2_ch1_6[i]);
-    }
-    JsonArray pdm2_7_12 = doc.createNestedArray("pdm2_ch7_12");
-    for (int i = 0; i < 6; i++) {
-      pdm2_7_12.add(vanState.pdm2_ch7_12[i]);
+    // PDM2 channels - command states and feedback amps
+    JsonObject pdm2 = doc.createNestedObject("pdm2");
+    for (int i = 1; i <= 12; i++) {
+      JsonObject ch = pdm2.createNestedObject(String(i));
+      ch["name"] = vanState.pdm2[i].name;
+      ch["state"] = vanState.pdm2[i].command;
+      ch["amps"] = serialized(String(vanState.pdm2[i].feedbackAmps, 2));
     }
     
     // Serialize to JSON string
-    char jsonBuffer[512];
+    char jsonBuffer[2048];  // Increased for large nested JSON payloads
     size_t len = serializeJson(doc, jsonBuffer);
+    
+    Serial.printf("🧠 Free heap after serialize: %d bytes\n", ESP.getFreeHeap());
     
     // Publish to AWS IoT
     Serial.printf("📤 Publishing telemetry (%d bytes)...", len);
     if (mqttClient.publish(telemetryTopic.c_str(), jsonBuffer, len, false, 0)) {
       Serial.println(" ✅");
+      Serial.printf("🧠 Free heap after publish: %d bytes\n", ESP.getFreeHeap());
       lastPublishTime = millis();
     } else {
       Serial.println(" ❌ Failed!");

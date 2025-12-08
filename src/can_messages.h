@@ -15,5 +15,7 @@
 #define RIXENS_RETURN4    0x725       // Fan speed, fuel usage
 #define RIXENS_GLYCOL     0x726       // Glycol temp & voltage
 #define RIXENS_RETURN6    0x728       // Rixen response 6
+#define THERMOSTAT_AMBIENT_STATUS 0x19FF9C58  // Cabin temperature (extended ID)
+#define TANK_LEVEL        0x19FFB7AF  // Tank level (extended ID)
 
 #endif

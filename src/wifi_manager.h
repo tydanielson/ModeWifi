@@ -8,7 +8,7 @@
 #define WIFI_LED_PIN 2  // Built-in LED on most ESP32 boards
 
 enum class WifiManagerMode {
-  STATION,   // Connected to Starlink
+  STATION,   // Connected to van WiFi
   ACCESS_POINT         // Access Point fallback
 };
 
@@ -17,24 +17,27 @@ private:
   WifiManagerMode currentMode;
   unsigned long lastReconnectAttempt = 0;
   const unsigned long RECONNECT_INTERVAL = 30000;  // Try reconnecting every 30 seconds
+  String apSSID;  // Dynamic AP SSID based on VAN_NAME
   
 public:
   WiFiManager() : currentMode(WifiManagerMode::STATION) {
     pinMode(WIFI_LED_PIN, OUTPUT);
+    // Generate AP SSID from VAN_NAME (e.g., "Wanderlust-Direct" or "Van-Direct")
+    apSSID = String(VAN_NAME) + "-Direct";
   }
   
   void begin() {
     Serial.println("\n🌐 WiFi Manager Starting...");
     
-    // Try to connect to Starlink first
+    // Try to connect to van WiFi first
     if (connectToStation()) {
       currentMode = WifiManagerMode::STATION;
-      Serial.println("✅ Connected to Starlink");
+      Serial.println("✅ Connected to van WiFi");
     } else {
       // Fallback to AP mode
       startAccessPoint();
       currentMode = WifiManagerMode::ACCESS_POINT;
-      Serial.println("⚠️ Starlink unavailable, started Access Point");
+      Serial.printf("⚠️ Van WiFi unavailable, started Access Point (%s)\n", apSSID.c_str());
     }
   }
   
@@ -66,13 +69,13 @@ public:
   }
   
   void startAccessPoint() {
-    Serial.printf("🔌 Starting Access Point: %s\n", AP_SSID);
+    Serial.printf("🔌 Starting Access Point: %s\n", apSSID.c_str());
     
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    WiFi.softAP(apSSID.c_str(), AP_PASSWORD);
     
     Serial.printf("✅ AP Started\n");
-    Serial.printf("   SSID: %s\n", AP_SSID);
+    Serial.printf("   SSID: %s\n", apSSID.c_str());
     Serial.printf("   Password: %s\n", AP_PASSWORD);
     Serial.printf("   IP: %s\n", WiFi.softAPIP().toString().c_str());
     

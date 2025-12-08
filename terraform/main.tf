@@ -185,12 +185,26 @@ resource "aws_dynamodb_table" "van_telemetry" {
     type = "S"
   }
   
+  attribute {
+    name = "server_timestamp"
+    type = "N"
+  }
+  
   # GSI for querying by message type across all devices
   # Example: Get all "alert" messages from last 24 hours
   global_secondary_index {
     name            = "MessageTypeIndex"
     hash_key        = "message_type"
     range_key       = "timestamp"
+    projection_type = "ALL"
+  }
+  
+  # GSI for efficiently querying latest telemetry by server timestamp
+  # Allows fast lookup of most recent data without scanning entire table
+  global_secondary_index {
+    name            = "ThingServerTimestampIndex"
+    hash_key        = "thing_name"
+    range_key       = "server_timestamp"
     projection_type = "ALL"
   }
 

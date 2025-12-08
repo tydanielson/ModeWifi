@@ -27,8 +27,8 @@ const char* THING_NAME = "storyteller-van-01";
 
 **WiFi Settings**:
 ```cpp
-const char* WIFI_SSID = "YOUR_STARLINK_SSID";
-const char* WIFI_PASSWORD = "YOUR_STARLINK_PASSWORD";
+const char* WIFI_SSID = "VanWiFi";            // Van WiFi (2.4GHz + 5GHz)
+const char* WIFI_PASSWORD = "vanlife2025";    // Van WiFi password
 ```
 
 **Certificates** (from `certificates/` folder):
@@ -81,7 +81,7 @@ src/
 ├── main.cpp              # Main program loop, dual-core setup
 ├── config.h              # WiFi + AWS credentials (GITIGNORED)
 ├── config.h.example      # Template for config
-├── wifi_manager.h        # WiFi connection (Starlink + AP fallback)
+├── wifi_manager.h        # WiFi connection (Van WiFi + AP fallback)
 ├── aws_iot.h             # MQTT client for AWS IoT
 ├── can_messages.h        # CAN message ID definitions
 ├── van_state.h           # Van state data structure
@@ -93,14 +93,14 @@ src/
 ## WiFi Modes
 
 ### Station Mode (Preferred)
-- Connects to Starlink WiFi
+- Connects to van WiFi (2.4GHz or 5GHz)
 - Enables AWS IoT publishing
 - Local web UI still available
 - LED: Solid ON
 
 ### Access Point Mode (Fallback)
-- No Starlink available
-- Creates "VanControl" hotspot
+- Van WiFi unavailable
+- Creates "Van-Direct" hotspot
 - Local web UI only (no AWS IoT)
 - LED: Blinks 3 times
 
@@ -142,7 +142,7 @@ van/storyteller-van-01/#
 aws dynamodb scan \
   --table-name storyteller-van-01-telemetry \
   --limit 1 \
-  --profile skadi | jq
+  --profile default | jq
 ```
 
 ## Troubleshooting
@@ -152,7 +152,7 @@ aws dynamodb scan \
 ❌ WiFi connection failed
 ```
 - Check WIFI_SSID and WIFI_PASSWORD in config.h
-- Make sure Starlink is powered on
+- Make sure van WiFi is powered on
 - ESP32 will fallback to AP mode automatically
 
 ### MQTT Connection Failed
@@ -163,7 +163,7 @@ Error: Connect failed
 - Check AWS_IOT_ENDPOINT in config.h
 - Verify certificates are correct (no extra spaces/newlines)
 - Run terraform output to confirm endpoint
-- Check certificate is attached: `aws iot list-thing-principals --thing-name storyteller-van-01 --profile skadi`
+- Check certificate is attached: `aws iot list-thing-principals --thing-name storyteller-van-01 --profile default`
 
 ### Certificate Errors
 ```
@@ -223,17 +223,17 @@ The file is automatically gitignored. If you accidentally commit it:
    - Verify MQTT publishing
    - Check DynamoDB
 
-2. **Test in Van with Starlink**
+2. **Test in Van with WiFi**
    - Install ESP32
-   - Power up Starlink
-   - Verify connection
+   - Power up van WiFi system
+   - Verify connection to van network
    - Monitor for 1 hour
 
 3. **Deploy for Trip**
    - Mount ESP32
    - Route power
    - Secure wiring
-   - Test failover (disconnect Starlink)
+   - Test failover (disconnect from van WiFi)
 
 ## Support
 

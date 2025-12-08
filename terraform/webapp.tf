@@ -121,6 +121,28 @@ resource "aws_s3_bucket_policy" "webapp" {
   })
 }
 
+# Dashboard HTML with API URL substitution
+resource "aws_s3_object" "dashboard" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "index.html"
+  content      = replace(
+    file("${path.module}/../dashboard/index.html"),
+    "$${API_GATEWAY_URL}",
+    aws_apigatewayv2_stage.webapp.invoke_url
+  )
+  content_type = "text/html"
+  etag         = md5(replace(
+    file("${path.module}/../dashboard/index.html"),
+    "$${API_GATEWAY_URL}",
+    aws_apigatewayv2_stage.webapp.invoke_url
+  ))
+
+  tags = {
+    Name        = "${var.thing_name}-dashboard"
+    Environment = "production"
+  }
+}
+
 # API Gateway HTTP API (v2)
 resource "aws_apigatewayv2_api" "webapp" {
   name          = "${var.thing_name}-api"
@@ -226,7 +248,10 @@ resource "aws_iam_role_policy" "lambda" {
           "dynamodb:Query",
           "dynamodb:Scan"
         ]
-        Resource = aws_dynamodb_table.van_telemetry.arn
+        Resource = [
+          aws_dynamodb_table.van_telemetry.arn,
+          "${aws_dynamodb_table.van_telemetry.arn}/index/*"
+        ]
       },
       {
         Effect = "Allow"

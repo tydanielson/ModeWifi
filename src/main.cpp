@@ -80,14 +80,14 @@ void setup() {
   Serial.println("ESP32 + SN65HVD230 CAN Transceiver");
   Serial.println("AWS IoT Core Integration");
   
-  // Initialize WiFi (tries Starlink, falls back to AP)
+  // Initialize WiFi (tries van WiFi, falls back to AP)
   wifiManager.begin();
   
-  // Initialize AWS IoT (only if connected to Starlink)
+  // Initialize AWS IoT (only if connected to van WiFi)
   if (wifiManager.isStationMode()) {
     awsIot.begin();
   } else {
-    Serial.println("⚠️ AWS IoT disabled in AP mode (need Starlink)");
+    Serial.println("⚠️ AWS IoT disabled in AP mode (need van WiFi connection)");
   }
   
   // Setup web server
@@ -198,8 +198,14 @@ void loop() {
       if (changed || !baselinesSet) {
         if (msgId == PDM1_COMMAND || msgId == PDM2_COMMAND) {
           decodePDMCommand(msgId, data, dataLen);
-        } else if (msgId == RIXENS_GLYCOL) {
+        } else if (msgId == PDM1_MESSAGE || msgId == PDM2_MESSAGE) {
+          decodePDMStatus(msgId, data, dataLen);
+        } else if (msgId == RIXENS_GLYCOL || msgId == RIXENS_RETURN3 || msgId == RIXENS_RETURN4 || 
+                   msgId == RIXENS_RETURN1 || msgId == RIXENS_RETURN2 || msgId == RIXENS_RETURN6 ||
+                   msgId == THERMOSTAT_AMBIENT_STATUS) {
           decodeRixens(msgId, data, dataLen);
+        } else if (msgId == TANK_LEVEL) {
+          decodeTankLevel(msgId, data, dataLen);
         }
       }
     }

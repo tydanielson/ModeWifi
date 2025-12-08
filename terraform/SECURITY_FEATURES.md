@@ -74,7 +74,7 @@ Even if someone steals your ESP32:
 aws iam enable-mfa-device ...
 
 # Use SSO (you're already doing this!)
-aws configure sso --profile skadi
+aws configure sso --profile van-profile
 ```
 
 ### 2. Rotate Certificates Annually
@@ -90,7 +90,7 @@ terraform apply
 ### 3. Monitor CloudWatch Logs
 ```bash
 # Check for errors
-aws logs tail /aws/iot/storyteller-van-01/errors --follow --profile skadi
+aws logs tail /aws/iot/storyteller-van-01/errors --follow --profile van-profile
 ```
 
 ### 4. Set Up Billing Alerts
@@ -132,7 +132,7 @@ aws logs tail /aws/iot/storyteller-van-01/errors --follow --profile skadi
    aws iot update-certificate \
      --certificate-id <CERT_ID> \
      --new-status REVOKED \
-     --profile skadi
+     --profile default
    ```
 
 2. **Check CloudWatch logs** for unauthorized activity

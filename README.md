@@ -1,8 +1,76 @@
 # Van Control System - ESP32 Native CAN
 
-A modern ESP32-based control system for Storyteller Overland Sprinter vans with Rixen HVAC and PDM power distribution. This project provides WiFi-enabled monitoring and control of van systems via a mobile-optimized web interface.
+A modern ESP32-based control system for Storyteller Overland Sprinter vans with Rixen HVAC and PDM power distribution. This project provides WiFi-enabled monitoring and control of van systems via a mobile-optimized web interface with AWS IoT Core integration for remote access.
 
 > **Fork Notice:** This is a heavily modified fork of [changer65535/ModeWifi](https://github.com/changer65535/ModeWifi). See [Credits](#-credits) for details.
+
+## 📖 Table of Contents
+
+- [Quick Start](#-quick-start) - Get up and running in 30 minutes
+- [Personalization](#-personalize-your-van) - Give your van a name
+- [Features](#-features) - What this system can do
+- [Hardware Requirements](#-hardware-requirements) - Parts list and wiring
+- [Setup Guide](#-complete-setup-guide) - Step-by-step instructions
+- [Architecture](#-architecture) - How it works
+- [Documentation](#-documentation) - Detailed guides
+- [Troubleshooting](#-troubleshooting) - Common issues
+- [Credits](#-credits) - Original project and changes
+
+## 🚀 Quick Start
+
+**Time required:** ~30 minutes for basic setup, +15 minutes for AWS IoT
+
+### Prerequisites
+- Storyteller Overland van with Rixen HVAC and PDM modules
+- Basic soldering skills (or willingness to learn)
+- Computer with USB port
+- AWS account (optional, for remote monitoring)
+
+### Quick Setup Path
+
+1. **Order hardware** (~$35-85, arrives in 2-3 days)
+   - ESP32 DevKit, SN65HVD230 CAN transceiver, wires
+   - See [Parts List](#parts-list) below
+
+2. **Build electronics** (15 minutes)
+   - Connect 4 wires between ESP32 and CAN transceiver
+   - See [Wiring Connections](#wiring-connections) below
+
+3. **Flash firmware** (5 minutes)
+   - Install PlatformIO, clone repo, configure WiFi
+   - Upload code to ESP32
+
+4. **Test on bench** (5 minutes)
+   - Power ESP32, connect to WiFi, verify web interface
+
+5. **Deploy AWS infrastructure** (15 minutes - optional)
+   - Run Terraform to create IoT resources
+   - Configure certificates in firmware
+
+6. **Install in van** (5 minutes)
+   - Connect to van's CAN bus under Groove Lounge seat
+   - Power from 12V with buck converter or USB battery
+
+**Total time:** 30-45 minutes + parts shipping
+
+### What You'll Get
+
+- **Local monitoring** via WiFi hotspot (works without internet)
+- **Remote monitoring** via AWS dashboard (optional, works over Starlink/cellular)
+- **Real-time data**: Temperature, voltage, PDM states, heating system
+- **Mobile-friendly** interface accessible from phone/tablet
+
+## 🏷️ Personalize Your Van
+
+Give your van a name! Edit `src/config.h`:
+```cpp
+const char* VAN_NAME = "Storyteller";  // or "Odyssey", "Adventure", etc.
+```
+
+This name will appear in:
+- Dashboard header and browser title
+- WiFi hotspot name (`{VAN_NAME}-Direct`)
+- System messages
 
 ## ⚠️ Safety Notice
 
@@ -34,11 +102,14 @@ This approach also allowed for a complete code rewrite with modern PlatformIO to
 ## 🎯 Features
 
 - **Real-time CAN bus monitoring** - Reads 50+ message types at 500kbps
-- **Responsive web interface** - Mobile-friendly dark theme UI accessible via WiFi
+- **AWS IoT Core integration** - Remote monitoring via MQTT over Starlink/cellular
+- **Cloud dashboard** - Secure HTTPS dashboard with live telemetry updates
+- **DynamoDB storage** - 30-day telemetry retention with efficient GSI queries
+- **Responsive web interface** - Mobile-friendly dark theme UI
 - **Dual-core operation** - WiFi/web on Core 0, CAN processing on Core 1
 - **PDM1/PDM2 support** - Monitor and control lights, pumps, fans, and power systems
 - **Rixen HVAC integration** - Temperature, voltage, and heating system monitoring
-- **Zero configuration** - Connect to "VanControl" WiFi network and go
+- **Infrastructure as code** - Terraform for reproducible AWS deployments
 - **Active development** - Ongoing improvements and feature additions
 
 ## 🚐 Hardware Requirements
@@ -52,11 +123,12 @@ This approach also allowed for a complete code rewrite with modern PlatformIO to
   - 500kbps CAN bus (Yellow=CAN-H, Green=CAN-L)
 
 ### Parts List
-- **ESP32 DevKit** - [AOKIN ESP32 Dev Board](https://www.amazon.com/dp/B0B5DTN62K) - ~$15 (2-pack)
-- **SN65HVD230 CAN Transceiver** - [HiLetgo 3.3V CAN Module](https://www.amazon.com/dp/B0F1JB2941) - ~$11 (2-pack)
-- **Jumper Wires** - [Dupont Wire Kit](https://www.amazon.com/dp/B08Y59P6D1) - ~$7
-- **DT Connector Kit** (optional) - [For clean van connections](https://www.amazon.com/dp/B0BVH43P9L) - ~$20
-- **DT Crimper Tool** (optional) - [For DT connectors](https://www.amazon.com/dp/B0718T232Z) - ~$30
+- **ESP32 DevKit** - [ESP32 Development Board](https://www.amazon.com/dp/B0718T232Z) - ~$15 (2-pack)
+- **SN65HVD230 CAN Transceiver** - [HiLetgo 3.3V CAN Module](https://www.amazon.com/dp/B0B5DTN62K) - ~$11 (2-pack)
+- **Power Converter** - [DC-DC Buck Converter 12V to 5V](https://www.amazon.com/dp/B0F1M24KG3) - ~$10 (5-pack)
+- **Breadboard & Jumper Wires** - [Dupont Wire Kit with Breadboards](https://www.amazon.com/dp/B08Y59P6D1) - ~$7
+- **DT Connector Kit** (optional) - [Professional DT Connector Kit](https://www.amazon.com/dp/B0DB86YJ8D) - ~$20
+- **Professional Harness** (optional) - [Pre-made Wiring Harness](https://www.amazon.com/dp/B0F1JB2941) - ~$30
 
 **Total cost:** ~$35 for basics, ~$85 with professional connectors
 
@@ -79,9 +151,193 @@ SN65HVD230 CANL → Van CAN-L (green wire)
 - ✅ Simpler wiring (2 GPIO pins vs 4 with MCP2515)
 - ✅ Uses ESP32's built-in TWAI/CAN controller (more reliable)
 
-## 📱 Quick Start
+## 📚 Complete Setup Guide
 
-### 1. Install PlatformIO
+### Step 1: Hardware Assembly (15 minutes)
+
+**What you need:**
+- ESP32 DevKit board
+- SN65HVD230 CAN transceiver module
+- 4 female-to-female jumper wires
+- USB cable for programming
+
+**Connections:**
+```
+ESP32 → SN65HVD230
+──────────────────
+GPIO 21 → CTX (CAN TX)
+GPIO 22 → CRX (CAN RX)
+3.3V    → VCC
+GND     → GND
+```
+
+**Tips:**
+- Double-check connections before powering on
+- Use colored wires for easy identification
+- Consider taking a photo of your wiring for reference
+
+### Step 2: Software Setup (10 minutes)
+
+**Install PlatformIO:**
+```bash
+# Option 1: VS Code Extension (recommended)
+# Install "PlatformIO IDE" from VS Code extensions
+
+# Option 2: Command line
+pip install platformio
+```
+
+**Clone and configure:**
+```bash
+git clone https://github.com/tydanielson/ModeWifi.git
+cd ModeWifi
+
+# Copy example config
+cp src/config.h.example src/config.h
+
+# Edit src/config.h with your settings:
+# - VAN_NAME (optional personalization)
+# - WIFI_SSID (your van's WiFi network)
+# - WIFI_PASSWORD (your WiFi password)
+```
+
+**Build and upload:**
+```bash
+# Connect ESP32 via USB
+pio run --target upload
+
+# Monitor serial output
+pio device monitor --baud 115200
+```
+
+**What to expect:**
+- "CAN bus initialized" message
+- "WiFi connected" or "AP started" message
+- CAN messages appearing in serial monitor
+
+### Step 3: Bench Test (5 minutes)
+
+Before installing in your van, test the hardware:
+
+1. **Power on ESP32** (via USB)
+2. **Check serial monitor** for startup messages
+3. **Connect to WiFi**:
+   - If van WiFi is on: Should auto-connect
+   - If not: Look for `{VAN_NAME}-Direct` hotspot
+4. **Verify web interface** works (local only, no CAN data yet)
+
+### Step 4: AWS IoT Setup (15 minutes - Optional)
+
+For remote monitoring over Starlink/cellular:
+
+**Prerequisites:**
+- AWS account
+- AWS CLI configured (`aws configure`)
+- Terraform installed (`brew install terraform`)
+
+**Deploy infrastructure:**
+```bash
+cd terraform
+
+# Initialize Terraform
+terraform init
+
+# Review what will be created
+terraform plan
+
+# Deploy (creates IoT Thing, DynamoDB, API Gateway, Lambda, CloudFront)
+terraform apply
+
+# Copy the outputs - you'll need these
+terraform output
+```
+
+**Update firmware with certificates:**
+```bash
+# Terraform generates certificates in ../certificates/
+# Copy the certificate details into src/config.h:
+
+# 1. IoT Endpoint
+terraform output iot_endpoint
+# Add to config.h: AWS_IOT_ENDPOINT = "your-endpoint.iot.us-east-1.amazonaws.com"
+
+# 2. Device Certificate
+cat ../certificates/certificate.pem.crt
+# Paste into config.h: DEVICE_CERTIFICATE = "..."
+
+# 3. Private Key
+cat ../certificates/private.pem.key
+# Paste into config.h: PRIVATE_KEY = "..."
+
+# Re-upload firmware
+cd ..
+pio run --target upload
+```
+
+**Access remote dashboard:**
+```bash
+# Get your CloudFront URL
+cd terraform
+terraform output cloudfront_domain
+
+# Open in browser - works from anywhere!
+```
+
+### Step 5: Van Installation (5 minutes)
+
+**Locate CAN bus:**
+- Under Groove Lounge seat
+- Between "CAN Bus 1" label and Rixen heater
+- Look for DT connectors with yellow (CAN-H) and green (CAN-L) wires
+
+**Connect to CAN:**
+```
+SN65HVD230 → Van CAN Bus
+────────────────────────
+CANH → Yellow wire (CAN-H)
+CANL → Green wire (CAN-L)
+```
+
+**Connection methods:**
+1. **Splice**: Cut wires, solder ESP32 wires in, heat shrink (permanent)
+2. **DT splitter**: Build Y-adapter with DT connector kit (cleanest)
+3. **Crimp taps**: Use 3M Scotchlok connectors (quick, reversible)
+
+**Power options:**
+```
+Option 1: USB power bank (testing/temporary)
+Option 2: 12V → 5V buck converter → ESP32 (permanent)
+Option 3: Tap into existing 5V USB port
+```
+
+### Step 6: Verify Operation (5 minutes)
+
+**Check serial monitor:**
+```bash
+pio device monitor --baud 115200
+```
+
+**Look for:**
+- ✅ "CAN bus initialized" 
+- ✅ "Connected to van WiFi"
+- ✅ "AWS IoT connected" (if configured)
+- ✅ CAN messages appearing every few seconds
+- ✅ "📤 Publishing telemetry" every 30 seconds
+
+**Test dashboard:**
+1. **Local**: Connect to van WiFi, browse to API endpoint
+2. **Remote**: Open CloudFront URL from anywhere
+3. **Verify**: Temperature, voltage, PDM states updating
+
+**Success indicators:**
+- Dashboard shows current data (not stale timestamps)
+- Temperature matches actual cabin temp
+- Battery voltage ~13V when van running
+- PDM channels reflect actual switch states
+
+---
+
+## 📱 Quick Start (Legacy - Local Only)
 ```bash
 # VS Code extension (recommended)
 # Search for "PlatformIO IDE" in VS Code extensions
@@ -94,11 +350,65 @@ pip install platformio
 ```bash
 git clone https://github.com/YOUR_USERNAME/VanControl-ESP32.git
 cd VanControl-ESP32
+```
+
+### 3. Configure AWS IoT Core (Required for Remote Monitoring)
+
+This project uses AWS IoT Core for remote monitoring over Starlink/cellular. Initial setup takes ~15 minutes.
+
+#### Prerequisites
+- AWS account with credentials configured
+- Terraform installed (`brew install terraform`)
+- AWS CLI configured (`aws configure` or AWS SSO)
+
+#### Deploy Infrastructure
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+This creates:
+- **AWS IoT Thing** - Device identity for your van
+- **DynamoDB table** - Stores telemetry data with 30-day TTL
+- **API Gateway + Lambda** - REST API to query telemetry
+- **CloudFront + S3** - Dashboard hosting with HTTPS
+- **Device certificates** - Secure MQTT authentication
+
+#### Configure ESP32
+```bash
+# 1. Copy certificate info from Terraform output
+cat ../certificates/certificate-info.json
+
+# 2. Get IoT endpoint
+terraform output iot_endpoint
+
+# 3. Update src/config.h with certificates and endpoint
+cp src/config.h.example src/config.h
+# Edit src/config.h with your values
+```
+
+See [docs/ESP32_SETUP.md](docs/ESP32_SETUP.md) for detailed configuration steps.
+
+### 4. Build and Upload Firmware
+```bash
 platformio run --target upload
 platformio device monitor --baud 115200
 ```
 
-### 3. Connect to Van
+### 5. Access Dashboard
+
+**Local (WiFi Direct):**
+1. Connect to van WiFi or `{VAN_NAME}-Direct` hotspot
+2. Browse to your API Gateway URL (from Terraform output)
+
+**Remote (AWS CloudFront):**
+- Dashboard URL provided in Terraform output
+- Updates every 5 seconds with live telemetry
+- Works from anywhere with internet
+
+### 6. Connect to Van
 1. Power ESP32 via USB (or van 12V with buck converter)
 2. Wait for "VanControl" WiFi network to appear
 3. Connect with password: `vanlife2025`
@@ -125,13 +435,22 @@ src/
 ├── can_messages.h     # CAN message ID definitions
 ├── van_state.h        # Shared van state data structure
 ├── can_decoder.h      # PDM and Rixen message decoders
-├── web_server.h       # HTTP server and JSON API handlers
-└── web_interface.h    # HTML/CSS/JavaScript embedded UI
+├── wifi_manager.h     # WiFi connection with AP fallback
+├── aws_iot.h          # AWS IoT Core MQTT client
+└── config.h           # WiFi, AWS, and certificate configuration
 
-Backups:
-├── src/main.cpp.old   # Previous monolithic version
-├── src/cm.cpp.old     # Original Arduino MCP2515 code
-└── src/cm.h.old       # Original headers
+terraform/
+├── main.tf            # AWS IoT Thing, DynamoDB, certificates
+├── webapp.tf          # API Gateway, Lambda, CloudFront, S3
+├── variables.tf       # Configurable parameters
+└── outputs.tf         # Endpoints and deployment info
+
+lambda/
+├── get-telemetry/     # Lambda function to query latest telemetry
+└── send-command/      # Lambda function for future control features
+
+dashboard/
+└── index.html         # CloudFront-hosted dashboard with live updates
 ```
 
 ### Dual-Core Operation
@@ -216,33 +535,35 @@ The CAN bus uses **DT connectors** with yellow (CAN-H) and green (CAN-L) wires. 
 
 ## 🔮 Roadmap
 
-### Phase 1 - Local Monitoring ✅ (Current)
+### Phase 1 - Local Monitoring ✅ (Complete)
 - [x] CAN bus reading and decoding
 - [x] WiFi access point
 - [x] Mobile web interface
 - [x] Real-time van state display
 
-### Phase 2 - Control Features (In Progress)
+### Phase 2 - AWS IoT Integration ✅ (Complete)
+- [x] AWS IoT Core MQTT publishing
+- [x] DynamoDB telemetry storage (30-day retention)
+- [x] REST API via API Gateway + Lambda
+- [x] CloudFront dashboard with HTTPS
+- [x] Remote monitoring over Starlink/cellular
+- [x] Terraform infrastructure-as-code
+
+### Phase 3 - Control Features (Planned)
 - [ ] Send CAN commands to control lights/pumps
 - [ ] Awning automation
 - [ ] Climate control presets
 - [ ] Tank level alerts
+- [ ] Mobile app notifications
 
 Note: The original repo had control features working - this needs to be ported to the new architecture.
 
-### Phase 3 - Remote Access (Planned)
-- [ ] AWS IoT Core integration via MQTT
-- [ ] Remote monitoring over Starlink
-- [ ] Cloud dashboard for van status
-- [ ] Mobile app notifications
-
 ## 📚 Documentation
 
-- **[Setup Guide](docs/SETUP.md)** - Quick start guide (15 minutes)
-- **[Code Structure](docs/CODE_STRUCTURE.md)** - Architecture overview
+- **[ESP32 Setup Guide](docs/ESP32_SETUP.md)** - Complete setup with AWS IoT configuration
+- **[Security Guide](SECURITY.md)** - Certificate management and AWS security best practices
 - **[Testing Checklist](docs/VAN_TESTING_CHECKLIST.md)** - Van testing procedures
-- **[Fork Changes](docs/FORK_CHANGES.md)** - Detailed comparison with original
-- **[GPL Compliance](docs/GPL_COMPLIANCE.md)** - License compliance details
+- **[Terraform Variables](terraform/variables.tf)** - Infrastructure configuration options
 
 ## 📚 Credits
 
@@ -264,10 +585,13 @@ The original used an **MCP2515 CAN controller + TJA1050 transceiver**, which had
 **Major changes in this fork:**
 - ✨ Switched from MCP2515 (SPI) to ESP32 native CAN (TWAI)
 - ✨ Changed from TJA1050 (5V) to SN65HVD230 (3.3V) transceiver
+- ✨ Added AWS IoT Core integration with MQTT over Starlink/cellular
+- ✨ Terraform infrastructure-as-code for AWS resources
+- ✨ CloudFront + S3 dashboard with live telemetry updates
+- ✨ DynamoDB storage with 30-day TTL and GSI for efficient queries
 - ✨ Migrated from Arduino IDE to PlatformIO
 - ✨ Modular code architecture with separate headers
 - ✨ Dual-core FreeRTOS task implementation
-- ✨ Mobile-first responsive web UI
 
 **Huge thanks to Christopher Hanger** for reverse-engineering the PDM and Rixen CAN protocols! All the CAN message decoding logic comes from that original work.
 
@@ -283,7 +607,7 @@ This is a derivative work based on the original [ModeWifi by Christopher Hanger 
 
 Issues and pull requests welcome! This is an active project being used in a production van build.
 
-**Current status:** Working prototype, tested with real van CAN bus (Dec 6, 2025).
+**Current status:** Production-ready! Tested with 13+ hours continuous operation (50+ CAN IDs, 1560+ MQTT publishes, zero crashes). Deployed Dec 8, 2025.
 
 ## ⚠️ Disclaimer
 

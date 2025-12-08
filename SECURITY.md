@@ -131,12 +131,12 @@ Since your repo is public (GPL v3), the code is visible to everyone. This is SAF
 
 1. **Revoke device certificates immediately**
    ```bash
-   aws iot update-certificate --certificate-id <ID> --new-status REVOKED --profile skadi
+   aws iot update-certificate --certificate-id <ID> --new-status REVOKED --profile default
    ```
 
 2. **Check CloudTrail logs**
    ```bash
-   aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=Connect --profile skadi
+   aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=Connect --profile default
    ```
 
 3. **Review IoT metrics** in CloudWatch console

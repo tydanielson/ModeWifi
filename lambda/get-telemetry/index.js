@@ -1,3 +1,4 @@
+// Lambda function to get telemetry data from DynamoDB (with GSI support)
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, ScanCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 
@@ -25,31 +26,24 @@ exports.handler = async (event) => {
         ScanIndexForward: false, // descending order
       };
       
-      // If there's an index on thing_name and timestamp, use Query
-      // For now, use Scan and sort on the client side
-      const scanParams = {
+      // Query using GSI on server_timestamp for efficient latest record lookup
+      const queryParams = {
         TableName: TABLE_NAME,
-        FilterExpression: 'thing_name = :thingName AND message_type = :msgType',
+        IndexName: 'ThingServerTimestampIndex',
+        KeyConditionExpression: 'thing_name = :thingName',
+        FilterExpression: 'message_type = :msgType',
         ExpressionAttributeValues: {
           ':thingName': THING_NAME,
           ':msgType': 'telemetry'
         },
-        Limit: 50 // Get last 50 and sort
+        ScanIndexForward: false, // Descending order (newest first)
+        Limit: 1 // Only need the latest record
       };
       
-      const command = new ScanCommand(scanParams);
+      const command = new QueryCommand(queryParams);
       const response = await docClient.send(command);
       
-      // Sort by server_timestamp (descending) to get the latest
-      const items = response.Items || [];
-      items.sort((a, b) => {
-        // Use server_timestamp if available, fallback to timestamp (for old records)
-        const aTime = parseInt(a.server_timestamp || a.timestamp) || 0;
-        const bTime = parseInt(b.server_timestamp || b.timestamp) || 0;
-        return bTime - aTime;
-      });
-      
-      const latest = items.length > 0 ? items[0] : null;
+      const latest = response.Items && response.Items.length > 0 ? response.Items[0] : null;
       
       // Convert server_timestamp from milliseconds to ISO string if present
       let serverTimestamp = new Date().toISOString();

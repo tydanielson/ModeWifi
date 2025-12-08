@@ -2,6 +2,13 @@
 #define CONFIG_H
 
 // ============================================================================
+// Van Personalization (optional)
+// ============================================================================
+// Give your van a name! This will appear in the dashboard and WiFi hotspot.
+// Leave as "Van" for default, or customize (e.g., "Wanderlust", "Odyssey", "Adventure")
+const char* VAN_NAME = "Van";  // Change this to personalize your setup
+
+// ============================================================================
 // AWS IoT Configuration
 // ============================================================================
 // IoT Endpoint from terraform output
@@ -11,12 +18,12 @@ const char* THING_NAME = "storyteller-van-01";
 // ============================================================================
 // WiFi Configuration
 // ============================================================================
-// Station mode (connect to Starlink)
-const char* WIFI_SSID = "YOUR_STARLINK_SSID";        // Replace with your Starlink WiFi name
-const char* WIFI_PASSWORD = "YOUR_STARLINK_PASSWORD"; // Replace with your Starlink password
+// Station mode (connect to van's WiFi)
+const char* WIFI_SSID = "VanWiFi";                   // Van WiFi name (2.4GHz + 5GHz)
+const char* WIFI_PASSWORD = "YOUR_PASSWORD_HERE";    // Replace with your van WiFi password
 
-// Access Point mode (fallback if Starlink unavailable)
-const char* AP_SSID = "VanControl";
+// Access Point (AP) settings - fallback if van WiFi unavailable
+// Note: AP_SSID will be auto-generated as "{VAN_NAME}-Direct" (e.g., "Van-Direct" or "Wanderlust-Direct")
 const char* AP_PASSWORD = "vanlife2025";
 
 // ============================================================================

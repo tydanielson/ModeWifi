@@ -21,9 +21,11 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/.terraform.lock.hcl
 terraform/terraform.tfvars
+terraform/tfplan
+terraform/*.tfplan
 
 # Lambda build artifacts (Terraform auto-packages)
-lambda/*.zip
+lambda/**/*.zip
 lambda/build.sh
 
 # Backup files
