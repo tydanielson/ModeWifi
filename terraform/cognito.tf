@@ -1,14 +1,15 @@
-# Cognito User Pool for invite-only authentication
+# Cognito User Pool for invite-only Google authentication
 resource "aws_cognito_user_pool" "van_users" {
   name = "${var.thing_name}-users"
 
-  # Allow only admin-created users (invite-only)
+  # Invite-only: Only users you create in Cognito console can access
+  # Create users with their Google email addresses, they'll use Google to login
   admin_create_user_config {
     allow_admin_create_user_only = true
     invite_message_template {
       email_subject = "Your ${var.thing_name} van access"
-      email_message = "You've been invited to access the van monitoring system. Username: {username}, Temporary password: {####}"
-      sms_message   = "Your username is {username} and temporary password is {####}"
+      email_message = "You've been invited to access the van monitoring system. Use your Google account (this email) to log in at the dashboard."
+      sms_message   = "You have access to the van monitoring system"
     }
   }
 

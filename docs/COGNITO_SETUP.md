@@ -4,13 +4,21 @@ This guide walks through setting up invite-only authentication for your van dash
 
 ## Overview
 
-The dashboard now requires authentication via Google login. Only users you explicitly invite in the AWS Cognito console will have access.
+The dashboard requires authentication via Google login. Only users you explicitly create in the AWS Cognito console will have access. This gives you the convenience of Google's login UI while maintaining full control over who can access your van's data.
 
 **Security Model:**
-- Invite-only (admin creates users)
-- Google OAuth 2.0 for authentication
+- Invite-only (you create 2 users in Cognito console with their Google email addresses)
+- Users click "Sign in with Google" and use their existing Google accounts
+- No passwords needed - Google handles authentication
 - JWT tokens protect API Gateway endpoints
 - Session-based tokens (60-minute expiry)
+
+**How it works:**
+1. You create users in Cognito with their Google email addresses (e.g., friend@gmail.com)
+2. They visit your dashboard and click "Sign in with Google"
+3. Google authenticates them
+4. Cognito matches their Google email to the user you created
+5. They get access to the dashboard
 
 ## Prerequisites
 
@@ -128,27 +136,43 @@ terraform output cognito_login_url
 # Full login URL for your dashboard
 ```
 
-## Step 4: Create Your First User
+## Step 4: Create Your Users (Limit to 2 People)
 
 ### 4.1 Access Cognito Console
 
 1. Go to [AWS Cognito Console](https://console.aws.amazon.com/cognito/)
 2. Click on your User Pool (e.g., `storyteller-van-01-users`)
 
-### 4.2 Create User
+### 4.2 Create First User (Yourself)
 
 1. Click **Users** tab
 2. Click **Create user**
 3. Configure user:
-   - **Email:** Your Google account email (must match!)
-   - **Mark email as verified:** ✅ Checked
-   - **Temporary password:** Create one (user won't use it, but required)
-   - **Send an email invitation:** Optional (not needed for Google login)
+   - **Email:** Your Google account email (e.g., yourname@gmail.com)
+   - **Mark email as verified:** ✅ Checked (important!)
+   - **Temporary password:** Create one (user won't need it for Google login)
+   - **Send an email invitation:** ✅ Optional (they'll get an email explaining how to login)
 4. Click **Create user**
 
-### 4.3 Link Google Identity
+### 4.3 Create Second User
 
-When the user logs in with Google for the first time, Cognito will automatically link their Google account to the Cognito user profile based on the email address match.
+Repeat the same process for the second person you want to give access to.
+
+**Important:**
+- Use their actual Google account email address
+- Mark email as verified
+- They must use that exact Google account when they click "Sign in with Google"
+
+### 4.4 How Google Linking Works
+
+When a user clicks "Sign in with Google" on your dashboard:
+1. Google authenticates them
+2. Cognito receives their Google email address
+3. Cognito checks if a user exists with that email
+4. If yes → user gets access
+5. If no → user sees "User does not exist" error
+
+This means only the 2 email addresses you created in Cognito will work.
 
 ## Step 5: Test Authentication
 
@@ -181,29 +205,49 @@ Expected Authorization header:
 Authorization: Bearer eyJraWQiOiJ...very_long_JWT_token...
 ```
 
-## Step 6: Invite Additional Users
+## Step 6: Managing Your 2 Users
 
-To give someone else access:
+### 6.1 View Current Users
 
-### 6.1 Create User in Cognito
+1. AWS Console → Cognito → Your User Pool → Users
+2. You should see your 2 users listed with their email addresses
 
-1. AWS Console → Cognito → Your User Pool → Users → Create user
-2. Enter their **Google account email**
-3. Mark email as verified
-4. Create temporary password (won't be used)
+### 6.2 Revoke Access
 
-### 6.2 Share Dashboard URL
+To remove someone's access:
+1. Find their user in the Cognito Users list
+2. Click on the user
+3. Click **Delete user**
+4. They will immediately lose access (their JWT tokens will be rejected)
 
-Send them:
-- CloudFront URL
-- Instructions to log in with Google
-- Confirm they use the same Google account email you added
+### 6.3 Add a Different User (Stay at 2 Total)
+
+To replace one user with another:
+1. Delete the old user (see above)
+2. Create new user with the new person's Google email
+3. Share dashboard URL with new user
+
+### 6.4 Why Only 2 Users?
+
+You mentioned limiting access to 2 users. With invite-only mode:
+- Only users you explicitly create can access the dashboard
+- No one can self-register
+- Perfect for keeping it just you + one other person (family member, co-pilot, etc.)
+- First 50,000 monthly active users are free on Cognito
+
+If you need more users later, just create more in the Cognito console.
 
 ## Troubleshooting
 
 ### Error: "User does not exist"
 
-**Solution:** Create user in Cognito console with exact Google account email
+**Cause:** The Google account email doesn't match any user in your Cognito user pool
+
+**Solution:** 
+1. Verify the user is trying to log in with the correct Google account
+2. Check Cognito console → Users → verify you created a user with that exact email
+3. Ensure "Email verified" is checked for that user
+4. If wrong email was used, delete the user and create new one with correct email
 
 ### Error: "Redirect URI mismatch"
 
