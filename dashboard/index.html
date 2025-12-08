@@ -24,6 +24,52 @@
             margin: 0 auto;
         }
 
+        .user-header {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .logout-btn {
+            background: rgba(244, 67, 54, 0.3);
+            border: 1px solid rgba(244, 67, 54, 0.5);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(244, 67, 54, 0.5);
+            border-color: rgba(244, 67, 54, 0.7);
+        }
+
         header {
             text-align: center;
             margin-bottom: 40px;
@@ -200,6 +246,14 @@
     </div>
 
     <div class="container">
+        <div class="user-header">
+            <div class="user-info">
+                <div class="user-avatar" id="userAvatar">?</div>
+                <span id="userEmail">Loading...</span>
+            </div>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </div>
+
         <header>
             <h1 id="vanHeader">🚐 <span id="vanName">Storyteller Van</span></h1>
             <p class="subtitle">Real-time Telemetry Monitor</p>
@@ -282,6 +336,15 @@
 
         // Update page title with van name
         document.title = `${VAN_NAME} Monitor`;
+
+        // Display user info
+        const userEmail = sessionStorage.getItem('user_email') || 'User';
+        const userName = sessionStorage.getItem('user_name') || userEmail;
+        document.getElementById('userEmail').textContent = userName;
+        
+        // Set avatar to first letter of email
+        const firstLetter = userEmail.charAt(0).toUpperCase();
+        document.getElementById('userAvatar').textContent = firstLetter;
 
         const PDM_CHANNELS = {
             pdm1: [
