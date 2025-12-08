@@ -4,6 +4,8 @@ A modern ESP32-based control system for Storyteller Overland Sprinter vans with 
 
 > **Fork Notice:** This is a heavily modified fork of [changer65535/ModeWifi](https://github.com/changer65535/ModeWifi). See [Credits](#-credits) for details.
 
+> **AI Development Notice:** Significant portions of this project's code, infrastructure, and documentation were developed with assistance from Claude (Anthropic). This includes AWS IoT integration, Terraform infrastructure, Lambda functions, and various firmware improvements.
+
 ## 📖 Table of Contents
 
 - [Quick Start](#-quick-start) - Get up and running in 30 minutes
