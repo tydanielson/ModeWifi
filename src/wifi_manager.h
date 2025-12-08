@@ -22,8 +22,12 @@ private:
 public:
   WiFiManager() : currentMode(WifiManagerMode::STATION) {
     pinMode(WIFI_LED_PIN, OUTPUT);
-    // Generate AP SSID from VAN_NAME (e.g., "Wanderlust-Direct" or "Van-Direct")
-    apSSID = String(VAN_NAME) + "-Direct";
+    // Generate AP SSID from VAN_NAME (if defined) or THING_NAME
+    #ifdef VAN_NAME
+      apSSID = String(VAN_NAME) + "-Direct";
+    #else
+      apSSID = String(THING_NAME) + "-Direct";
+    #endif
   }
   
   void begin() {
