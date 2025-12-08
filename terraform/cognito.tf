@@ -1,28 +1,31 @@
-# Cognito User Pool for invite-only Google authentication
+# Cognito User Pool for email/password authentication
 resource "aws_cognito_user_pool" "van_users" {
   name = "${var.thing_name}-users"
 
   # Invite-only: Only users you create in Cognito console can access
-  # Create users with their Google email addresses, they'll use Google to login
   admin_create_user_config {
     allow_admin_create_user_only = true
     invite_message_template {
       email_subject = "Your ${var.thing_name} van access"
-      email_message = "You've been invited to access the van monitoring system. Use your Google account (this email) to log in at the dashboard."
-      sms_message   = "You have access to the van monitoring system"
+      email_message = "You've been invited to access the van monitoring system. Username: {username}, Temporary password: {####}. You'll be prompted to change this on first login."
+      sms_message   = "Your username is {username} and temporary password is {####}"
     }
   }
 
   # Email configuration
   auto_verified_attributes = ["email"]
   
-  # Password policy (even though we're using Google, this applies to temporary passwords)
+  # Username attributes - allow sign in with email
+  username_attributes = ["email"]
+  
+  # Password policy
   password_policy {
     minimum_length    = 8
     require_lowercase = true
     require_numbers   = true
     require_symbols   = false
     require_uppercase = true
+    temporary_password_validity_days = 7
   }
 
   # Account recovery
@@ -53,25 +56,6 @@ resource "aws_cognito_user_pool_domain" "van_auth" {
   user_pool_id = aws_cognito_user_pool.van_users.id
 }
 
-# Google Identity Provider
-resource "aws_cognito_identity_provider" "google" {
-  user_pool_id  = aws_cognito_user_pool.van_users.id
-  provider_name = "Google"
-  provider_type = "Google"
-
-  provider_details = {
-    authorize_scopes = "email openid profile"
-    client_id        = var.google_client_id
-    client_secret    = var.google_client_secret
-  }
-
-  attribute_mapping = {
-    email    = "email"
-    username = "sub"
-    name     = "name"
-  }
-}
-
 # Cognito User Pool Client (for web application)
 resource "aws_cognito_user_pool_client" "van_dashboard" {
   name         = "${var.thing_name}-dashboard-client"
@@ -93,8 +77,8 @@ resource "aws_cognito_user_pool_client" "van_dashboard" {
     "http://localhost:8000"
   ]
 
-  # Supported identity providers
-  supported_identity_providers = ["Google"]
+  # Supported identity providers - use Cognito built-in
+  supported_identity_providers = ["COGNITO"]
 
   # Token validity
   id_token_validity      = 60  # 60 minutes

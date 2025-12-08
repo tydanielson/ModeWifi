@@ -22,16 +22,3 @@ variable "allowed_ip_ranges" {
   default     = []  # Empty = no IP restriction. Add your IPs for stricter security
   # Example: ["1.2.3.4/32", "5.6.7.0/24"]  # Your home/Starlink IPs
 }
-
-# Cognito variables
-variable "google_client_id" {
-  description = "Google OAuth Client ID (from Google Cloud Console)"
-  type        = string
-  sensitive   = true
-}
-
-variable "google_client_secret" {
-  description = "Google OAuth Client Secret (from Google Cloud Console)"
-  type        = string
-  sensitive   = true
-}
