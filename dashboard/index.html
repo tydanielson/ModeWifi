@@ -183,11 +183,27 @@
             border-radius: 8px;
             text-align: center;
             transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+
+        .pdm-channel:hover {
+            background: rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.3);
         }
 
         .pdm-channel.active {
             background: rgba(76, 175, 80, 0.3);
             border: 2px solid #4CAF50;
+        }
+        
+        .pdm-channel.active:hover {
+            background: rgba(76, 175, 80, 0.4);
+        }
+        
+        .pdm-channel.sending {
+            opacity: 0.6;
+            cursor: wait;
         }
 
         .pdm-channel-name {
@@ -414,6 +430,7 @@
 
         function renderPDMChannels(channels, names, containerId) {
             const container = document.getElementById(containerId);
+            const pdmNumber = containerId === 'pdm1-grid' ? 1 : 2;
             container.innerHTML = '';
 
             // Channels is an array of objects [{name, state, amps}, ...]
@@ -427,19 +444,92 @@
                 const currentDraw = parseFloat(channel.amps) || 0;
                 // Device is ON if it's drawing current OR if state byte says it's on
                 const isActive = currentDraw > 0.05 || channel.state > 0;
+                const channelNumber = index + 1;
                 
                 const channelDiv = document.createElement('div');
                 channelDiv.className = `pdm-channel ${isActive ? 'active' : ''}`;
+                channelDiv.id = `pdm${pdmNumber}-ch${channelNumber}`;
                 channelDiv.innerHTML = `
                     <div class="pdm-channel-name">${channel.name || 'Unknown'}</div>
                     <div class="pdm-channel-value">
                         ${isActive ? 'ON' : 'OFF'}${currentDraw > 0.05 ? ` (${currentDraw.toFixed(2)}A)` : ''}
                     </div>
                 `;
+                
+                // Add click handler to toggle channel
+                channelDiv.onclick = () => togglePDMChannel(pdmNumber, channelNumber, !isActive);
+                
                 container.appendChild(channelDiv);
             });
         }
 
+        async function sendCommand(command, parameters) {
+            if (!isAuthenticated()) {
+                redirectToLogin();
+                return { success: false, error: 'Not authenticated' };
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/command`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${getIdToken()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        command: command,
+                        parameters: parameters
+                    })
+                });
+                
+                if (response.status === 401) {
+                    redirectToLogin();
+                    return { success: false, error: 'Token expired' };
+                }
+                
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                console.error('Error sending command:', error);
+                return { success: false, error: error.message };
+            }
+        }
+        
+        async function togglePDMChannel(pdm, channel, newState) {
+            const elementId = `pdm${pdm}-ch${channel}`;
+            const channelElement = document.getElementById(elementId);
+            
+            if (!channelElement) return;
+            
+            // Visual feedback
+            channelElement.classList.add('sending');
+            
+            console.log(`Toggling PDM${pdm} Channel ${channel} to ${newState ? 'ON' : 'OFF'}`);
+            
+            const result = await sendCommand('set_pdm_channel', {
+                pdm: pdm,
+                channel: channel,
+                state: newState
+            });
+            
+            // Remove sending state
+            channelElement.classList.remove('sending');
+            
+            if (result.success) {
+                console.log('Command sent successfully');
+                // Update UI immediately for responsiveness
+                if (newState) {
+                    channelElement.classList.add('active');
+                } else {
+                    channelElement.classList.remove('active');
+                }
+                // Actual state will be updated on next telemetry refresh
+            } else {
+                console.error('Command failed:', result.error);
+                alert(`Failed to control PDM${pdm} Channel ${channel}: ${result.error || 'Unknown error'}`);
+            }
+        }
+        
         async function fetchTelemetry() {
             const indicator = document.getElementById('refreshIndicator');
             indicator.style.display = 'flex';

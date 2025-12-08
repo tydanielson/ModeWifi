@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 #include <MQTT.h>
 #include <ArduinoJson.h>
+#include <CAN.h>
 #include "config.h"
 #include "van_state.h"
 
@@ -245,22 +246,109 @@ public:
   
   void messageCallback(String &topic, String &payload) {
     Serial.printf("📥 Message received on: %s\n", topic.c_str());
+    Serial.printf("   Payload: %s\n", payload.c_str());
     
-    // Parse JSON command (for Phase 3)
-    StaticJsonDocument<256> doc;
+    // Parse JSON command
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, payload);
     
     if (error) {
       Serial.println("❌ Failed to parse command JSON");
+      publishCommandResponse(false, "Failed to parse JSON", "");
       return;
     }
     
     const char* command = doc["command"];
+    if (!command) {
+      Serial.println("❌ No command field in JSON");
+      publishCommandResponse(false, "No command field", "");
+      return;
+    }
+    
     Serial.printf("   Command: %s\n", command);
     
-    // TODO Phase 3: Handle commands
-    // if (strcmp(command, "awning") == 0) { ... }
-    // if (strcmp(command, "hvac") == 0) { ... }
+    // Handle PDM channel control
+    if (strcmp(command, "set_pdm_channel") == 0) {
+      int pdm = doc["parameters"]["pdm"] | 1;
+      int channel = doc["parameters"]["channel"] | 1;
+      bool state = doc["parameters"]["state"] | false;
+      
+      if (pdm < 1 || pdm > 2 || channel < 1 || channel > 12) {
+        Serial.println("❌ Invalid PDM or channel number");
+        publishCommandResponse(false, "Invalid PDM or channel", command);
+        return;
+      }
+      
+      Serial.printf("   Setting PDM%d Channel %d to %s\n", pdm, channel, state ? "ON" : "OFF");
+      
+      // Send CAN bus command
+      bool success = sendPDMCommand(pdm, channel, state);
+      
+      if (success) {
+        publishCommandResponse(true, "Command sent to PDM", command);
+      } else {
+        publishCommandResponse(false, "Failed to send CAN command", command);
+      }
+    } else {
+      Serial.printf("⚠️  Unknown command: %s\n", command);
+      publishCommandResponse(false, "Unknown command", command);
+    }
+  }
+  
+  bool sendPDMCommand(int pdm, int channel, bool state) {
+    // PDM channels use CAN bus commands
+    // PDM1: 0x14EF1E11, PDM2: 0x14EF1F11
+    uint32_t canId = (pdm == 1) ? 0x14EF1E11 : 0x14EF1F11;
+    
+    // Build 8-byte PDM command message
+    // Byte 0: Channel number (1-12)
+    // Byte 1: State (0x00 = OFF, 0x01 = ON)
+    // Bytes 2-7: Reserved (0x00)
+    uint8_t data[8] = {0};
+    data[0] = (uint8_t)channel;
+    data[1] = state ? 0x01 : 0x00;
+    
+    Serial.printf("📤 Sending CAN: ID=0x%08X Data=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
+                  canId, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
+    
+    // Send extended CAN frame
+    if (!CAN.beginExtendedPacket(canId)) {
+      Serial.println("❌ Failed to start CAN packet");
+      return false;
+    }
+    
+    CAN.write(data, 8);
+    
+    if (!CAN.endPacket()) {
+      Serial.println("❌ Failed to send CAN packet");
+      return false;
+    }
+    
+    Serial.println("✅ CAN command sent");
+    return true;
+  }
+  
+  void publishCommandResponse(bool success, const char* message, const char* command) {
+    if (!mqttClient.connected()) {
+      return;
+    }
+    
+    StaticJsonDocument<512> doc;
+    doc["thing_name"] = THING_NAME;
+    doc["timestamp"] = millis();
+    doc["message_type"] = "command_response";
+    doc["success"] = success;
+    doc["message"] = message;
+    if (command && strlen(command) > 0) {
+      doc["command"] = command;
+    }
+    
+    char jsonBuffer[512];
+    size_t len = serializeJson(doc, jsonBuffer);
+    
+    String responseTopic = String("van/") + THING_NAME + "/command_responses";
+    mqttClient.publish(responseTopic.c_str(), jsonBuffer, len, false, 0);
+    Serial.printf("📤 Command response published: %s\n", success ? "SUCCESS" : "FAILED");
   }
   
   bool isConnected() {

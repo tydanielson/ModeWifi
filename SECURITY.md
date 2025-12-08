@@ -20,7 +20,7 @@ The IoT policy restricts devices to:
 - **Result**: Even with valid certs, devices can ONLY access their own topics
 
 ### 3. Account Isolation
-- All resources are deployed in YOUR AWS account 
+- All resources are deployed in YOUR AWS account
 - AWS accounts are completely isolated from each other
 - IoT endpoint is account-specific: `<random>.iot.us-east-1.amazonaws.com`
 - **Result**: Other AWS accounts cannot access your IoT endpoint
