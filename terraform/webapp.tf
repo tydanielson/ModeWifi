@@ -41,6 +41,7 @@ resource "aws_cloudfront_distribution" "webapp" {
   comment             = "${var.thing_name} webapp distribution"
   default_root_object = "index.html"
   price_class         = "PriceClass_100" # US, Canada, Europe
+  aliases             = var.custom_domain != "" ? [var.custom_domain] : []
 
   origin {
     domain_name              = aws_s3_bucket.webapp.bucket_regional_domain_name
@@ -87,7 +88,10 @@ resource "aws_cloudfront_distribution" "webapp" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = var.custom_domain == "" ? true : false
+    acm_certificate_arn            = var.custom_domain != "" ? var.acm_certificate_arn : null
+    ssl_support_method             = var.custom_domain != "" ? "sni-only" : null
+    minimum_protocol_version       = var.custom_domain != "" ? "TLSv1.2_2021" : null
   }
 
   tags = {

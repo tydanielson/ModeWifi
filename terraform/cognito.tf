@@ -66,16 +66,22 @@ resource "aws_cognito_user_pool_client" "van_dashboard" {
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_scopes                 = ["email", "openid", "profile"]
   
-  # Callback URLs (CloudFront domain)
-  callback_urls = [
-    "https://${aws_cloudfront_distribution.webapp.domain_name}/callback.html",
-    "http://localhost:8000/callback.html"  # For local development
-  ]
+  # Callback URLs (CloudFront domain + optional custom domain)
+  callback_urls = concat(
+    [
+      "https://${aws_cloudfront_distribution.webapp.domain_name}/callback.html",
+      "http://localhost:8000/callback.html"  # For local development
+    ],
+    var.custom_domain != "" ? ["https://${var.custom_domain}/callback.html"] : []
+  )
   
-  logout_urls = [
-    "https://${aws_cloudfront_distribution.webapp.domain_name}",
-    "http://localhost:8000"
-  ]
+  logout_urls = concat(
+    [
+      "https://${aws_cloudfront_distribution.webapp.domain_name}",
+      "http://localhost:8000"
+    ],
+    var.custom_domain != "" ? ["https://${var.custom_domain}"] : []
+  )
 
   # Supported identity providers - use Cognito built-in
   supported_identity_providers = ["COGNITO"]

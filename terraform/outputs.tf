@@ -40,8 +40,13 @@ output "cloudfront_distribution_id" {
 }
 
 output "cloudfront_domain" {
-  description = "CloudFront distribution domain name"
+  description = "CloudFront distribution domain name (use this for CNAME if using custom domain)"
   value       = "https://${aws_cloudfront_distribution.webapp.domain_name}"
+}
+
+output "custom_domain_instructions" {
+  description = "Instructions for setting up custom domain"
+  value       = var.custom_domain != "" ? "Custom Domain Setup:\n1. Add this CNAME record in your danielson.io DNS:\n   Name: ${var.custom_domain}\n   Type: CNAME\n   Value: ${aws_cloudfront_distribution.webapp.domain_name}\n   TTL: 300\n\n2. Your dashboard will be available at: https://${var.custom_domain}\n3. Update Cognito callback URL to include custom domain (already configured in terraform)" : "No custom domain configured. Set custom_domain and acm_certificate_arn in terraform.tfvars to enable."
 }
 
 output "webapp_bucket" {

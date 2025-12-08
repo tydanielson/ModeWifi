@@ -22,3 +22,15 @@ variable "allowed_ip_ranges" {
   default     = []  # Empty = no IP restriction. Add your IPs for stricter security
   # Example: ["1.2.3.4/32", "5.6.7.0/24"]  # Your home/Starlink IPs
 }
+
+variable "custom_domain" {
+  description = "Optional custom domain for CloudFront (e.g., 'skadi.danielson.io'). Leave empty to use CloudFront default URL."
+  type        = string
+  default     = ""
+}
+
+variable "acm_certificate_arn" {
+  description = "ARN of ACM certificate for custom domain (must be in us-east-1 for CloudFront). Required if custom_domain is set."
+  type        = string
+  default     = ""
+}

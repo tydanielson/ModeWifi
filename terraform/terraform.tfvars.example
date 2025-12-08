@@ -24,3 +24,14 @@ google_client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
 # Example: ["1.2.3.4/32", "5.6.7.0/24"]
 # Leave empty [] to allow all IPs (less secure but easier for mobile/Starlink)
 allowed_ip_ranges = []
+
+# Optional: Custom domain for dashboard
+# If you want to use your own domain instead of CloudFront's default URL:
+# 1. Set custom_domain to your desired subdomain (e.g., "skadi.danielson.io")
+# 2. Request an ACM certificate in us-east-1 region for your domain
+# 3. Set acm_certificate_arn to the certificate ARN
+# 4. After terraform apply, add a CNAME record in your DNS:
+#    skadi.danielson.io → [CloudFront domain from output]
+# Leave both empty to use default CloudFront URL
+custom_domain = ""
+acm_certificate_arn = ""
