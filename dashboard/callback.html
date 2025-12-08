@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authenticating...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #4a5f8f 0%, #667eea 50%, #89a8d4 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+        
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            margin: 20px auto;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .error {
+            background: rgba(244, 67, 54, 0.3);
+            border: 2px solid #f44336;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚐 Van Monitor</h1>
+        <div class="spinner"></div>
+        <p id="status">Completing authentication...</p>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        // COGNITO_CONFIG will be injected by Terraform
+        const COGNITO_CONFIG = {
+            domain: '${COGNITO_DOMAIN}',
+            clientId: '${COGNITO_CLIENT_ID}',
+            redirectUri: window.location.origin + '/callback.html'
+        };
+
+        async function handleCallback() {
+            const params = new URLSearchParams(window.location.search);
+            const code = params.get('code');
+            const error = params.get('error');
+            const errorDescription = params.get('error_description');
+
+            if (error) {
+                showError(`Authentication failed: ${errorDescription || error}`);
+                return;
+            }
+
+            if (!code) {
+                showError('No authorization code received');
+                return;
+            }
+
+            try {
+                // Exchange authorization code for tokens
+                const tokenEndpoint = `https://${COGNITO_CONFIG.domain}/oauth2/token`;
+                
+                const response = await fetch(tokenEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'authorization_code',
+                        client_id: COGNITO_CONFIG.clientId,
+                        code: code,
+                        redirect_uri: COGNITO_CONFIG.redirectUri
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error_description || 'Token exchange failed');
+                }
+
+                const tokens = await response.json();
+                
+                // Store tokens in sessionStorage
+                sessionStorage.setItem('id_token', tokens.id_token);
+                sessionStorage.setItem('access_token', tokens.access_token);
+                sessionStorage.setItem('refresh_token', tokens.refresh_token);
+                sessionStorage.setItem('token_expiry', Date.now() + (tokens.expires_in * 1000));
+
+                // Decode ID token to get user info
+                const payload = JSON.parse(atob(tokens.id_token.split('.')[1]));
+                sessionStorage.setItem('user_email', payload.email);
+                sessionStorage.setItem('user_name', payload.name || payload.email);
+
+                // Redirect to dashboard
+                document.getElementById('status').textContent = 'Success! Redirecting...';
+                window.location.href = '/';
+
+            } catch (error) {
+                console.error('Authentication error:', error);
+                showError(`Failed to complete authentication: ${error.message}`);
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('status').style.display = 'none';
+            document.querySelector('.spinner').style.display = 'none';
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            
+            // Show retry button
+            const retryBtn = document.createElement('button');
+            retryBtn.textContent = 'Try Again';
+            retryBtn.style.cssText = 'margin-top: 20px; padding: 10px 20px; background: white; color: #4a5f8f; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;';
+            retryBtn.onclick = () => window.location.href = '/';
+            errorDiv.appendChild(retryBtn);
+        }
+
+        // Start authentication flow
+        handleCallback();
+    </script>
+</body>
+</html>

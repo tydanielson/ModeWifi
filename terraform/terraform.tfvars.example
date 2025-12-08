@@ -1,6 +1,26 @@
-# Local Terraform variables - NOT committed to git
-# Copy terraform.tfvars.example to terraform.tfvars and customize
+# Example terraform.tfvars file
+# Copy this to terraform.tfvars and fill in your actual values
+# IMPORTANT: terraform.tfvars is gitignored and should NEVER be committed
 
+# Your van's identifier (used for AWS resource naming)
+thing_name = "storyteller-van-01"
+
+# AWS Configuration
 aws_region  = "us-east-1"
-aws_profile = "default"  # Your AWS CLI profile name
-thing_name  = "storyteller-van-01"
+aws_profile = "default"  # or "skadi", "production", etc.
+
+# Google OAuth Configuration (required for Cognito authentication)
+# Get these from: https://console.cloud.google.com/apis/credentials
+# 1. Create a new OAuth 2.0 Client ID (Web application)
+# 2. Add Authorized redirect URIs:
+#    - https://<thing-name>-auth.auth.<region>.amazoncognito.com/oauth2/idpresponse
+#    - http://localhost:8000/callback.html (for local testing)
+# 3. Copy the Client ID and Client Secret below
+
+google_client_id     = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+google_client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+
+# Optional: Restrict API access to specific IP ranges
+# Example: ["1.2.3.4/32", "5.6.7.0/24"]
+# Leave empty [] to allow all IPs (less secure but easier for mobile/Starlink)
+allowed_ip_ranges = []

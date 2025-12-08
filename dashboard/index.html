@@ -237,7 +237,48 @@
         // API URL - This gets replaced by deploy script with actual Terraform output
         // Template: ${API_GATEWAY_URL}
         const API_URL = '${API_GATEWAY_URL}';
+        
+        // Cognito configuration - injected by Terraform (same as callback.html)
+        const COGNITO_CONFIG = {
+            domain: '${COGNITO_DOMAIN}',
+            clientId: '${COGNITO_CLIENT_ID}',
+            redirectUri: window.location.origin + '/callback.html'
+        };
+        
         let updateInterval;
+
+        // Authentication helpers
+        function getIdToken() {
+            return sessionStorage.getItem('id_token');
+        }
+
+        function isAuthenticated() {
+            const token = getIdToken();
+            const expiry = sessionStorage.getItem('token_expiry');
+            
+            if (!token || !expiry) return false;
+            
+            // Check if token is expired (with 5 min buffer)
+            return Date.now() < (parseInt(expiry) - 300000);
+        }
+
+        function redirectToLogin() {
+            const loginUrl = `https://${COGNITO_CONFIG.domain}/login?client_id=${COGNITO_CONFIG.clientId}&response_type=code&scope=email+openid+profile&redirect_uri=${encodeURIComponent(COGNITO_CONFIG.redirectUri)}`;
+            window.location.href = loginUrl;
+        }
+
+        function logout() {
+            sessionStorage.clear();
+            const logoutUrl = `https://${COGNITO_CONFIG.domain}/logout?client_id=${COGNITO_CONFIG.clientId}&logout_uri=${encodeURIComponent(window.location.origin)}`;
+            window.location.href = logoutUrl;
+        }
+
+        // Check authentication on page load
+        if (!isAuthenticated()) {
+            redirectToLogin();
+            // Stop script execution if not authenticated
+            throw new Error('Not authenticated - redirecting to login');
+        }
 
         // Update page title with van name
         document.title = `${VAN_NAME} Monitor`;
@@ -320,7 +361,25 @@
             indicator.style.display = 'flex';
 
             try {
-                const response = await fetch(`${API_URL}/telemetry/latest`);
+                // Check if still authenticated before making API call
+                if (!isAuthenticated()) {
+                    redirectToLogin();
+                    return;
+                }
+
+                const response = await fetch(`${API_URL}/telemetry/latest`, {
+                    headers: {
+                        'Authorization': `Bearer ${getIdToken()}`
+                    }
+                });
+
+                // Handle 401 Unauthorized - token might be expired
+                if (response.status === 401) {
+                    console.log('Token expired, redirecting to login');
+                    redirectToLogin();
+                    return;
+                }
+
                 const result = await response.json();
 
                 if (result.success && result.data) {

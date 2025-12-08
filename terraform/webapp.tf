@@ -121,24 +121,70 @@ resource "aws_s3_bucket_policy" "webapp" {
   })
 }
 
-# Dashboard HTML with API URL substitution
+# Dashboard HTML with API URL and Cognito configuration
 resource "aws_s3_object" "dashboard" {
-  bucket       = aws_s3_bucket.webapp.id
-  key          = "index.html"
-  content      = replace(
-    file("${path.module}/../dashboard/index.html"),
-    "$${API_GATEWAY_URL}",
-    aws_apigatewayv2_stage.webapp.invoke_url
+  bucket = aws_s3_bucket.webapp.id
+  key    = "index.html"
+  content = replace(
+    replace(
+      replace(
+        file("${path.module}/../dashboard/index.html"),
+        "$${API_GATEWAY_URL}",
+        aws_apigatewayv2_stage.webapp.invoke_url
+      ),
+      "$${COGNITO_DOMAIN}",
+      "${aws_cognito_user_pool_domain.van_auth.domain}.auth.${data.aws_region.current.name}.amazoncognito.com"
+    ),
+    "$${COGNITO_CLIENT_ID}",
+    aws_cognito_user_pool_client.van_dashboard.id
   )
   content_type = "text/html"
-  etag         = md5(replace(
-    file("${path.module}/../dashboard/index.html"),
-    "$${API_GATEWAY_URL}",
-    aws_apigatewayv2_stage.webapp.invoke_url
+  etag = md5(replace(
+    replace(
+      replace(
+        file("${path.module}/../dashboard/index.html"),
+        "$${API_GATEWAY_URL}",
+        aws_apigatewayv2_stage.webapp.invoke_url
+      ),
+      "$${COGNITO_DOMAIN}",
+      "${aws_cognito_user_pool_domain.van_auth.domain}.auth.${data.aws_region.current.name}.amazoncognito.com"
+    ),
+    "$${COGNITO_CLIENT_ID}",
+    aws_cognito_user_pool_client.van_dashboard.id
   ))
 
   tags = {
     Name        = "${var.thing_name}-dashboard"
+    Environment = "production"
+  }
+}
+
+# OAuth callback page with Cognito configuration
+resource "aws_s3_object" "callback" {
+  bucket = aws_s3_bucket.webapp.id
+  key    = "callback.html"
+  content = replace(
+    replace(
+      file("${path.module}/../dashboard/callback.html"),
+      "$${COGNITO_DOMAIN}",
+      "${aws_cognito_user_pool_domain.van_auth.domain}.auth.${data.aws_region.current.name}.amazoncognito.com"
+    ),
+    "$${COGNITO_CLIENT_ID}",
+    aws_cognito_user_pool_client.van_dashboard.id
+  )
+  content_type = "text/html"
+  etag = md5(replace(
+    replace(
+      file("${path.module}/../dashboard/callback.html"),
+      "$${COGNITO_DOMAIN}",
+      "${aws_cognito_user_pool_domain.van_auth.domain}.auth.${data.aws_region.current.name}.amazoncognito.com"
+    ),
+    "$${COGNITO_CLIENT_ID}",
+    aws_cognito_user_pool_client.van_dashboard.id
+  ))
+
+  tags = {
+    Name        = "${var.thing_name}-callback"
     Environment = "production"
   }
 }
@@ -154,13 +200,27 @@ resource "aws_apigatewayv2_api" "webapp" {
       "http://localhost:3000" # For local development
     ]
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    allow_headers = ["*"]
+    allow_headers = ["Authorization", "Content-Type", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"]
+    expose_headers = ["Authorization"]
     max_age       = 300
   }
 
   tags = {
     Name        = "${var.thing_name}-api"
     Environment = "production"
+  }
+}
+
+# Cognito Authorizer for API Gateway
+resource "aws_apigatewayv2_authorizer" "cognito" {
+  api_id           = aws_apigatewayv2_api.webapp.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "${var.thing_name}-cognito-authorizer"
+
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.van_dashboard.id]
+    issuer   = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${aws_cognito_user_pool.van_users.id}"
   }
 }
 
@@ -363,21 +423,27 @@ resource "aws_apigatewayv2_integration" "send_command" {
 
 # API Gateway routes
 resource "aws_apigatewayv2_route" "get_telemetry" {
-  api_id    = aws_apigatewayv2_api.webapp.id
-  route_key = "GET /telemetry"
-  target    = "integrations/${aws_apigatewayv2_integration.get_telemetry.id}"
+  api_id             = aws_apigatewayv2_api.webapp.id
+  route_key          = "GET /telemetry"
+  target             = "integrations/${aws_apigatewayv2_integration.get_telemetry.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
 resource "aws_apigatewayv2_route" "get_latest_telemetry" {
-  api_id    = aws_apigatewayv2_api.webapp.id
-  route_key = "GET /telemetry/latest"
-  target    = "integrations/${aws_apigatewayv2_integration.get_telemetry.id}"
+  api_id             = aws_apigatewayv2_api.webapp.id
+  route_key          = "GET /telemetry/latest"
+  target             = "integrations/${aws_apigatewayv2_integration.get_telemetry.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
 resource "aws_apigatewayv2_route" "send_command" {
-  api_id    = aws_apigatewayv2_api.webapp.id
-  route_key = "POST /command"
-  target    = "integrations/${aws_apigatewayv2_integration.send_command.id}"
+  api_id             = aws_apigatewayv2_api.webapp.id
+  route_key          = "POST /command"
+  target             = "integrations/${aws_apigatewayv2_integration.send_command.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
 # Lambda permissions for API Gateway
