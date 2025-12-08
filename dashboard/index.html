@@ -26,14 +26,32 @@
 
         .user-header {
             display: flex;
-            justify-content: flex-end;
+            justify-content: space-between;
             align-items: center;
             gap: 15px;
             margin-bottom: 20px;
-            padding: 10px;
+            padding: 15px 20px;
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
             border-radius: 10px;
+        }
+
+        .van-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .van-title h1 {
+            font-size: 1.5rem;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .van-title .subtitle {
+            font-size: 0.85rem;
+            opacity: 0.8;
+            margin-left: 10px;
         }
 
         .user-info {
@@ -72,7 +90,7 @@
 
         header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 20px;
         }
 
         h1 {
@@ -247,16 +265,19 @@
 
     <div class="container">
         <div class="user-header">
+            <div class="van-title">
+                <h1>🚐 <span id="vanName">Storyteller Van</span></h1>
+                <span class="subtitle">Real-time Telemetry Monitor</span>
+            </div>
             <div class="user-info">
                 <div class="user-avatar" id="userAvatar">?</div>
                 <span id="userEmail">Loading...</span>
+                <button class="logout-btn" onclick="logout()">Logout</button>
             </div>
-            <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
 
-        <header>
-            <h1 id="vanHeader">🚐 <span id="vanName">Storyteller Van</span></h1>
-            <p class="subtitle">Real-time Telemetry Monitor</p>
+        <header style="display: none;">
+            <!-- Moved to user-header -->
         </header>
 
         <div class="status-bar">
