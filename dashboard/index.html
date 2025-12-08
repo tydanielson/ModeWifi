@@ -205,6 +205,56 @@
             opacity: 0.6;
             cursor: wait;
         }
+        
+        .control-card {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .control-card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .toggle-button {
+            width: 100%;
+            max-width: 300px;
+            height: 80px;
+            margin: 0 auto;
+            display: block;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border-radius: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(244, 67, 54, 0.3);
+            color: #fff;
+        }
+        
+        .toggle-button:hover {
+            transform: scale(1.05);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .toggle-button.on {
+            background: rgba(76, 175, 80, 0.5);
+            border-color: #4CAF50;
+        }
+        
+        .toggle-button.on:hover {
+            background: rgba(76, 175, 80, 0.6);
+        }
+        
+        .toggle-button.sending {
+            opacity: 0.6;
+            cursor: wait;
+        }
 
         .pdm-channel-name {
             font-size: 0.8rem;
@@ -495,6 +545,39 @@
             }
         }
         
+        async function toggleCabinLights() {
+            const btn = document.getElementById('cabinLightsBtn');
+            if (!btn) return;
+            
+            const isCurrentlyOn = btn.classList.contains('on');
+            const newState = !isCurrentlyOn;
+            
+            btn.classList.add('sending');
+            btn.textContent = 'SENDING...';
+            
+            const result = await sendCommand('set_pdm_channel', {
+                pdm: 1,
+                channel: 4,  // Ceiling Lights is channel 4 on PDM1
+                state: newState
+            });
+            
+            btn.classList.remove('sending');
+            
+            if (result.success) {
+                if (newState) {
+                    btn.classList.add('on');
+                    btn.textContent = 'TURN OFF';
+                } else {
+                    btn.classList.remove('on');
+                    btn.textContent = 'TURN ON';
+                }
+            } else {
+                alert(`Failed to control cabin lights: ${result.error || 'Unknown error'}`);
+                // Restore previous state
+                btn.textContent = isCurrentlyOn ? 'TURN OFF' : 'TURN ON';
+            }
+        }
+        
         async function togglePDMChannel(pdm, channel, newState) {
             const elementId = `pdm${pdm}-ch${channel}`;
             const channelElement = document.getElementById(elementId);
@@ -596,7 +679,23 @@
             // Render main content
             const content = document.getElementById('content');
             content.className = '';
+            
+            // Find cabin lights state (PDM1 Channel 4)
+            let cabinLightsState = false;
+            if (data.pdm1 && data.pdm1[4]) {
+                const channel = data.pdm1[4];
+                const currentDraw = parseFloat(channel.amps) || 0;
+                cabinLightsState = currentDraw > 0.05 || channel.state > 0;
+            }
+            
             content.innerHTML = `
+                <div class="control-card">
+                    <h2>💡 Cabin Lights</h2>
+                    <button id="cabinLightsBtn" class="toggle-button ${cabinLightsState ? 'on' : ''}" onclick="toggleCabinLights()">
+                        ${cabinLightsState ? 'TURN OFF' : 'TURN ON'}
+                    </button>
+                </div>
+                
                 <div class="vitals-section">
                     ${data.cabin_temp && data.cabin_temp > -100 ? `
                     <div class="card">
