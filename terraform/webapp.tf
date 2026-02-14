@@ -163,6 +163,44 @@ resource "aws_s3_object" "dashboard" {
   }
 }
 
+# Custom login page with Cognito configuration
+resource "aws_s3_object" "login" {
+  bucket = aws_s3_bucket.webapp.id
+  key    = "login.html"
+  content = replace(
+    replace(
+      replace(
+        file("${path.module}/../dashboard/login.html"),
+        "USER_POOL_ID_PLACEHOLDER",
+        aws_cognito_user_pool.van_users.id
+      ),
+      "CLIENT_ID_PLACEHOLDER",
+      aws_cognito_user_pool_client.van_dashboard.id
+    ),
+    "'us-east-1'",
+    "'${data.aws_region.current.name}'"
+  )
+  content_type = "text/html"
+  etag = md5(replace(
+    replace(
+      replace(
+        file("${path.module}/../dashboard/login.html"),
+        "USER_POOL_ID_PLACEHOLDER",
+        aws_cognito_user_pool.van_users.id
+      ),
+      "CLIENT_ID_PLACEHOLDER",
+      aws_cognito_user_pool_client.van_dashboard.id
+    ),
+    "'us-east-1'",
+    "'${data.aws_region.current.name}'"
+  ))
+
+  tags = {
+    Name        = "${var.thing_name}-login"
+    Environment = "production"
+  }
+}
+
 # OAuth callback page with Cognito configuration
 resource "aws_s3_object" "callback" {
   bucket = aws_s3_bucket.webapp.id
@@ -193,16 +231,103 @@ resource "aws_s3_object" "callback" {
   }
 }
 
+# PWA Manifest
+resource "aws_s3_object" "manifest" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "manifest.json"
+  source       = "${path.module}/../dashboard/manifest.json"
+  content_type = "application/json"
+  etag         = filemd5("${path.module}/../dashboard/manifest.json")
+
+  tags = {
+    Name        = "${var.thing_name}-manifest"
+    Environment = "production"
+  }
+}
+
+# Service Worker
+resource "aws_s3_object" "service_worker" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "sw.js"
+  source       = "${path.module}/../dashboard/sw.js"
+  content_type = "application/javascript"
+  etag         = filemd5("${path.module}/../dashboard/sw.js")
+
+  tags = {
+    Name        = "${var.thing_name}-service-worker"
+    Environment = "production"
+  }
+}
+
+# PWA Icon 192x192 PNG
+resource "aws_s3_object" "icon_192_png" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "icon-192.png"
+  source       = "${path.module}/../dashboard/icon-192.png"
+  content_type = "image/png"
+  etag         = filemd5("${path.module}/../dashboard/icon-192.png")
+
+  tags = {
+    Name        = "${var.thing_name}-icon-192-png"
+    Environment = "production"
+  }
+}
+
+# PWA Icon 512x512 PNG
+resource "aws_s3_object" "icon_512_png" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "icon-512.png"
+  source       = "${path.module}/../dashboard/icon-512.png"
+  content_type = "image/png"
+  etag         = filemd5("${path.module}/../dashboard/icon-512.png")
+
+  tags = {
+    Name        = "${var.thing_name}-icon-512-png"
+    Environment = "production"
+  }
+}
+
+# PWA Icon 192x192 SVG (fallback)
+resource "aws_s3_object" "icon_192_svg" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "icon-192.svg"
+  source       = "${path.module}/../dashboard/icon-192.svg"
+  content_type = "image/svg+xml"
+  etag         = filemd5("${path.module}/../dashboard/icon-192.svg")
+
+  tags = {
+    Name        = "${var.thing_name}-icon-192-svg"
+    Environment = "production"
+  }
+}
+
+# PWA Icon 512x512 SVG (fallback)
+resource "aws_s3_object" "icon_512_svg" {
+  bucket       = aws_s3_bucket.webapp.id
+  key          = "icon-512.svg"
+  source       = "${path.module}/../dashboard/icon-512.svg"
+  content_type = "image/svg+xml"
+  etag         = filemd5("${path.module}/../dashboard/icon-512.svg")
+
+  tags = {
+    Name        = "${var.thing_name}-icon-512-svg"
+    Environment = "production"
+  }
+}
+
 # API Gateway HTTP API (v2)
 resource "aws_apigatewayv2_api" "webapp" {
   name          = "${var.thing_name}-api"
   protocol_type = "HTTP"
   
   cors_configuration {
-    allow_origins = [
-      "https://${aws_cloudfront_distribution.webapp.domain_name}",
-      "http://localhost:3000" # For local development
-    ]
+    allow_origins = concat(
+      [
+        "https://${aws_cloudfront_distribution.webapp.domain_name}",
+        "http://localhost:3000" # For local development
+      ],
+      var.custom_domain != "" ? ["https://${var.custom_domain}"] : []
+    )
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["Authorization", "Content-Type", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"]
     expose_headers = ["Authorization"]

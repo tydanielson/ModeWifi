@@ -7,6 +7,7 @@
 
 // Helper to calculate feedback amps from PDM message byte
 // Based on original ModeWifi code: byte value * 0.125 = Amps
+// Channel mapping: Ch1=byte2, Ch2=byte3, Ch3=byte4, Ch4=byte5, Ch5=byte6, Ch6=byte7
 float feedbackAmps(uint8_t* data, int channelNumber) {
   int nByteOffset;
   if ((channelNumber == 1) || (channelNumber == 7)) nByteOffset = 2;
@@ -28,12 +29,18 @@ uint8_t pdm2Ch712Baseline[8] = {0};
 bool baselinesSet = false;
 
 // Decode PDM command messages (0x04 = channels 1-6, 0x05 = channels 7-12)
+// Note: 0xFC/0xFD are diagnostic/handshake messages per original ModeWifi, NOT command values
 void decodePDMCommand(uint32_t id, uint8_t* data, int len) {
   int pdm = (id == PDM1_COMMAND) ? 1 : 2;
   
-  if (len < 2) return;
+  if (len < 8) return;
   
-  uint8_t b0 = data[0];
+  uint8_t b0 = data[0] & 0x07;  // Original code masks to lower 3 bits
+  
+  // 0xFC/0xFD: Per original ModeWifi these are diagnostic messages
+  // 0xFC = Motor Model Handshake (msg 134)
+  // 0xFD = Analog Inputs / Output Diagnostics (msg 129)
+  // We skip these -- they don't contain channel command states
   
   // Channels 1-6 command states
   if (b0 == 0x04) {
@@ -153,6 +160,50 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
       Serial.println();
     }
   }
+  
+  // Supply voltage (battery) from PDM - 0xFB message
+  // Per original ModeWifi: voltage = (data[7] * 256 + data[6]) / 256.0
+  else if (b0 == 0xFB) {
+    float fVoltage = (data[7] * 256.0 + data[6]) / 256.0;
+    vanState.voltage = fVoltage;
+    vanState.lastUpdate = millis();
+    
+    if (!baselinesSet) {
+      Serial.print("  -> Battery Voltage: ");
+      Serial.print(fVoltage, 1);
+      Serial.println("V");
+    }
+  }
+  
+  // Digital inputs 1-6 (for button press simulation)
+  else if (b0 == 0xF0) {
+    if (pdm == 1) {
+      vanState.lastPDM1inputs1to6.id = id;
+      memcpy(vanState.lastPDM1inputs1to6.data, data, 8);
+      vanState.lastPDM1inputs1to6.dlc = len;
+      vanState.lastPDM1inputs1to6.timestamp = millis();
+    } else {
+      vanState.lastPDM2inputs1to6.id = id;
+      memcpy(vanState.lastPDM2inputs1to6.data, data, 8);
+      vanState.lastPDM2inputs1to6.dlc = len;
+      vanState.lastPDM2inputs1to6.timestamp = millis();
+    }
+  }
+  
+  // Digital inputs 7-12 (for button press simulation)
+  else if (b0 == 0xF8) {
+    if (pdm == 1) {
+      vanState.lastPDM1inputs7to12.id = id;
+      memcpy(vanState.lastPDM1inputs7to12.data, data, 8);
+      vanState.lastPDM1inputs7to12.dlc = len;
+      vanState.lastPDM1inputs7to12.timestamp = millis();
+    } else {
+      vanState.lastPDM2inputs7to12.id = id;
+      memcpy(vanState.lastPDM2inputs7to12.data, data, 8);
+      vanState.lastPDM2inputs7to12.dlc = len;
+      vanState.lastPDM2inputs7to12.timestamp = millis();
+    }
+  }
 }
 
 // Decode tank level messages (fuel, water, etc.)
@@ -162,31 +213,60 @@ void decodeTankLevel(uint32_t id, uint8_t* data, int len) {
     uint8_t tankType = data[0];
     uint8_t level = data[1];
     uint8_t resolution = data[2];
+    float pct = (resolution > 0) ? (level * 100.0) / resolution : level;
     
-    // 0x00 = fresh water, 0x02 = gray water, others = fuel
-    if (tankType != 0x00 && tankType != 0x02) {
-      // This is fuel - calculate percentage
-      if (resolution > 0) {
-        vanState.fuelLevel = (level * 100.0) / resolution;
-      } else {
-        vanState.fuelLevel = level;  // Use raw value if resolution is 0
-      }
-      vanState.lastUpdate = millis();
-      
+    if (tankType == 0x00) {
+      // Fresh water
+      vanState.freshWaterLevel = pct;
       if (!baselinesSet) {
-        Serial.print("  -> FUEL: ");
-        Serial.print(level);
-        Serial.print("/");
-        Serial.print(resolution);
-        Serial.print(" = ");
-        Serial.print(vanState.fuelLevel, 1);
-        Serial.println("%");
+        Serial.printf("  -> FRESH WATER: %d/%d = %.1f%%\n", level, resolution, pct);
+      }
+    } else if (tankType == 0x02) {
+      // Gray water
+      vanState.grayWaterLevel = pct;
+      if (!baselinesSet) {
+        Serial.printf("  -> GRAY WATER: %d/%d = %.1f%%\n", level, resolution, pct);
+      }
+    } else {
+      // Diesel fuel
+      vanState.fuelLevel = pct;
+      if (!baselinesSet) {
+        Serial.printf("  -> FUEL: %d/%d = %.1f%%\n", level, resolution, pct);
       }
     }
+    vanState.lastUpdate = millis();
+  }
+}
+
+// Decode AC thermostat status (from THERMOSTAT_STATUS_1)
+void decodeThermostatStatus(uint32_t id, uint8_t* data, int len) {
+  if (id != THERMOSTAT_STATUS_1 || len < 7) return;
+  
+  // Helper to decode bytes to Celsius
+  auto bytes2DegreesC = [](uint8_t b1, uint8_t b2) -> float {
+    return ((int)b1 + (int)b2 * 0x100) * 0.03125 - 273.0;
+  };
+  
+  vanState.acOperatingMode = data[1] & 0x0F;
+  vanState.acFanMode = (data[1] >> 4) & 0x03;
+  vanState.acFanSpeed = data[2];
+  vanState.acSetpointCool = bytes2DegreesC(data[5], data[6]);
+  vanState.lastUpdate = millis();
+  
+  if (!baselinesSet) {
+    const char* modes[] = {"Off", "Cool", "Heat", "Auto", "Fan", "AuxHeat", "Defrost"};
+    const char* modeName = (vanState.acOperatingMode < 7) ? modes[vanState.acOperatingMode] : "?";
+    Serial.printf("  -> AC: mode=%s fan=%d speed=%d setpoint=%.1fC\n",
+      modeName, vanState.acFanMode, vanState.acFanSpeed, vanState.acSetpointCool);
   }
 }
 
 void decodeRixens(uint32_t id, uint8_t* data, int len) {
+  // Debug: Log when we receive thermostat messages
+  if (id == THERMOSTAT_AMBIENT_STATUS) {
+    Serial.printf("🌡️  THERMOSTAT message received (len=%d)\n", len);
+  }
+  
   // Debug: Print all Rixens messages during baseline setting
   if (!baselinesSet && (id == 0x724 || id == 0x725 || id == 0x726 || id == 0x728 || id == 0x78A || id == 0x78B || id == THERMOSTAT_AMBIENT_STATUS || id == TANK_LEVEL)) {
     Serial.print("  RAW 0x");

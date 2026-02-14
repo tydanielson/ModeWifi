@@ -85,6 +85,14 @@ const char* htmlPage = R"rawliteral(
       transition: all 0.2s ease;
       min-height: 48px;
       touch-action: manipulation;
+      cursor: pointer;
+      user-select: none;
+    }
+    .item:hover {
+      background: #3a3a3a;
+    }
+    .item:active {
+      transform: scale(0.98);
     }
     .item.on { 
       background: #2d5016;
@@ -110,6 +118,29 @@ const char* htmlPage = R"rawliteral(
       margin-top: 20px;
       font-size: 11px;
       padding-bottom: 10px;
+    }
+    
+    .master-switch {
+      background: #2a4a2a;
+      padding: 16px;
+      border-radius: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      border: 2px solid #4CAF50;
+    }
+    .master-switch:hover {
+      background: #3a5a3a;
+    }
+    .master-switch:active {
+      transform: scale(0.98);
+    }
+    .master-switch.on {
+      background: #4CAF50;
+      box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
     }
     
     @media (max-width: 480px) {
@@ -153,6 +184,14 @@ const char* htmlPage = R"rawliteral(
   </div>
 
   <div class="status">
+    <h2>💡 Lights</h2>
+    <div class="master-switch" id="allLights" onclick="toggleAllLights()">
+      ALL LIGHTS
+    </div>
+    <div class="grid" id="lights"></div>
+  </div>
+
+  <div class="status">
     <h2>PDM1 - Lights & Pumps</h2>
     <div class="grid" id="pdm1"></div>
   </div>
@@ -165,6 +204,59 @@ const char* htmlPage = R"rawliteral(
   <div class="update">Auto-refresh every 2 seconds</div>
 
   <script>
+    const lightChannels = [
+      {pdm: 1, channel: 2, name: 'CARGO_LIGHTS'},
+      {pdm: 1, channel: 3, name: 'READING_LIGHT'},
+      {pdm: 1, channel: 4, name: 'CABIN_LIGHTS'},
+      {pdm: 1, channel: 5, name: 'AWNING_LIGHTS'}
+    ];
+    
+    let lightStates = {};
+    
+    function toggleAllLights() {
+      // Check if any light is on
+      const anyOn = lightChannels.some(light => lightStates[`${light.pdm}-${light.channel}`] > 0);
+      const newState = !anyOn;
+      
+      // Toggle all lights
+      lightChannels.forEach(light => {
+        fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdm: light.pdm, channel: light.channel, state: newState })
+        });
+      });
+      
+      // Refresh after short delay
+      setTimeout(updateStatus, 300);
+    }
+    
+    function toggleChannel(pdm, channel, currentState) {
+      const newState = currentState === 0;
+      console.log(`Toggling PDM${pdm} CH${channel} to ${newState ? 'ON' : 'OFF'}`);
+      
+      fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdm, channel, state: newState })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          console.log('Command sent successfully');
+          // Refresh status immediately
+          setTimeout(updateStatus, 200);
+        } else {
+          console.error('Command failed:', data.message);
+          alert('Failed to send command: ' + data.message);
+        }
+      })
+      .catch(err => {
+        console.error('Error:', err);
+        alert('Network error: ' + err.message);
+      });
+    }
+    
     function updateStatus() {
       fetch('/api/status')
         .then(r => r.json())
@@ -172,22 +264,51 @@ const char* htmlPage = R"rawliteral(
           document.getElementById('voltage').textContent = data.voltage || '--';
           document.getElementById('temp').textContent = data.temp || '--';
           
+          // Update lights section
+          let lightsHtml = '';
+          let anyLightOn = false;
+          lightChannels.forEach(light => {
+            const item = data.pdm1[light.channel - 1];
+            const onClass = item.state > 0 ? 'on' : '';
+            const stateText = item.state > 0 ? 'ON' : 'OFF';
+            lightStates[`${light.pdm}-${light.channel}`] = item.state;
+            if (item.state > 0) anyLightOn = true;
+            
+            lightsHtml += `<div class="item ${onClass}" onclick="toggleChannel(${light.pdm}, ${light.channel}, ${item.state})">
+              <span class="name">${light.name}</span>
+              <span class="value">${stateText}</span>
+            </div>`;
+          });
+          document.getElementById('lights').innerHTML = lightsHtml;
+          
+          // Update master switch
+          const masterSwitch = document.getElementById('allLights');
+          if (anyLightOn) {
+            masterSwitch.classList.add('on');
+          } else {
+            masterSwitch.classList.remove('on');
+          }
+          
           let pdm1html = '';
-          data.pdm1.forEach(item => {
-            const onClass = item.value > 0 ? 'on' : '';
-            pdm1html += `<div class="item ${onClass}">
+          data.pdm1.forEach((item, idx) => {
+            const channel = idx + 1;
+            const onClass = item.state > 0 ? 'on' : '';
+            const stateText = item.state > 0 ? 'ON' : 'OFF';
+            pdm1html += `<div class="item ${onClass}" onclick="toggleChannel(1, ${channel}, ${item.state})">
               <span class="name">${item.name}</span>
-              <span class="value">${item.value}%</span>
+              <span class="value">${stateText}</span>
             </div>`;
           });
           document.getElementById('pdm1').innerHTML = pdm1html;
           
           let pdm2html = '';
-          data.pdm2.forEach(item => {
-            const onClass = item.value > 0 ? 'on' : '';
-            pdm2html += `<div class="item ${onClass}">
+          data.pdm2.forEach((item, idx) => {
+            const channel = idx + 1;
+            const onClass = item.state > 0 ? 'on' : '';
+            const stateText = item.state > 0 ? 'ON' : 'OFF';
+            pdm2html += `<div class="item ${onClass}" onclick="toggleChannel(2, ${channel}, ${item.state})">
               <span class="name">${item.name}</span>
-              <span class="value">${item.value}%</span>
+              <span class="value">${stateText}</span>
             </div>`;
           });
           document.getElementById('pdm2').innerHTML = pdm2html;

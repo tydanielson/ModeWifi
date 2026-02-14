@@ -20,14 +20,15 @@
 
 #include <Arduino.h>
 #include <CAN.h>
+#include <ArduinoOTA.h>
 
 // Project headers
 #include "can_messages.h"
 #include "van_state.h"
 #include "can_decoder.h"
 #include "wifi_manager.h"
+#include "web_server.h"  // Must be before aws_iot.h (button functions)
 #include "aws_iot.h"
-#include "web_server.h"
 
 // Global instances
 WiFiManager wifiManager;
@@ -39,15 +40,13 @@ VanState vanState;
 #define CAN_TX_PIN 21  // Connect to CTX on SN65HVD230
 #define CAN_RX_PIN 22  // Connect to CRX on SN65HVD230
 
-// Message tracking
-struct MessageTracker {
-  uint32_t id;
-  uint32_t count;
-  uint8_t lastData[8];
-  uint8_t dlc;
-};
-MessageTracker trackedMessages[50];
+// Message tracking (MessageTracker struct defined in van_state.h)
+MessageTracker trackedMessages[100];  // Increased from 50 for safety
 int trackedCount = 0;
+int totalMsgCount = 0;  // Exposed for debug endpoint
+
+// CAN bus mutex for thread-safe access between cores
+SemaphoreHandle_t canMutex;
 
 // Task handles for dual-core operation
 TaskHandle_t networkTask;  // WiFi + AWS IoT + Web Server on Core 0
@@ -58,6 +57,7 @@ void networkTaskFunction(void * parameter) {
   unsigned long lastTelemetryCheck = 0;
   
   for(;;) {
+    ArduinoOTA.handle();          // Handle OTA updates
     wifiManager.loop();           // Check WiFi connection
     awsIot.loop();                // Handle MQTT reconnection
     server.handleClient();         // Handle web requests
@@ -83,6 +83,35 @@ void setup() {
   // Initialize WiFi (tries van WiFi, falls back to AP)
   wifiManager.begin();
   
+  // Setup OTA updates
+  ArduinoOTA.setHostname("van-esp32");
+  ArduinoOTA.setPassword("vanupdate");  // Set a password for security
+  
+  ArduinoOTA.onStart([]() {
+    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+    Serial.println("\n🔄 OTA Update Starting: " + type);
+  });
+  
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\n✅ OTA Update Complete!");
+  });
+  
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  
+  ArduinoOTA.begin();
+  Serial.println("✓ OTA updates enabled (hostname: van-esp32, password: vanupdate)");
+  
   // Initialize AWS IoT (only if connected to van WiFi)
   if (wifiManager.isStationMode()) {
     awsIot.begin();
@@ -94,6 +123,9 @@ void setup() {
   Serial.println("\n🌐 Starting web server...");
   setupWebServer();
   Serial.println("✓ Web server started on port 80");
+  
+  // Create CAN bus mutex for thread-safe access between cores
+  canMutex = xSemaphoreCreateMutex();
   
   // Set CAN pins and start
   CAN.setPins(CAN_RX_PIN, CAN_TX_PIN);
@@ -143,13 +175,25 @@ void loop() {
   
   if (packetSize) {
     msgCount++;
+    totalMsgCount++;
     uint32_t msgId = CAN.packetId();
     uint8_t data[8] = {0};
     int dataLen = 0;
     
-    // Read the data
+    // Read the data first (always)
     while (CAN.available() && dataLen < 8) {
       data[dataLen++] = CAN.read();
+    }
+    
+    // Debug: Print non-PDM messages for first 15 seconds to diagnose missing Rixens/thermostat
+    if (millis() < 15000 && msgId != PDM1_MESSAGE && msgId != PDM2_MESSAGE && msgId != PDM1_COMMAND && msgId != PDM2_COMMAND) {
+      Serial.printf("🔍 CAN 0x%X%s [", msgId, CAN.packetExtended() ? " (EXT)" : "");
+      for (int i = 0; i < dataLen; i++) {
+        if (i > 0) Serial.print(" ");
+        if (data[i] < 0x10) Serial.print("0");
+        Serial.print(data[i], HEX);
+      }
+      Serial.println("]");
     }
     
     // Find or add this message ID to tracking
@@ -161,7 +205,7 @@ void loop() {
       }
     }
     
-    if (idx == -1 && trackedCount < 50) {
+    if (idx == -1 && trackedCount < 100) {
       // New message ID discovered
       idx = trackedCount++;
       trackedMessages[idx].id = msgId;
@@ -179,6 +223,8 @@ void loop() {
     if (idx >= 0) {
       trackedMessages[idx].count++;
       
+      // Note: Digital input storage (0xF0/0xF8) is handled by decodePDMStatus() in can_decoder.h
+      
       // Check if data changed (ignore last byte for PDM commands)
       bool isPDMCommand = (msgId == PDM1_COMMAND || msgId == PDM2_COMMAND);
       int compareLen = (isPDMCommand && dataLen > 1) ? dataLen - 1 : dataLen;
@@ -194,6 +240,32 @@ void loop() {
       // Update stored data
       memcpy(trackedMessages[idx].lastData, data, dataLen);
       
+      // Print PDM commands ONLY when they change (reduces spam)
+      if ((msgId == PDM1_COMMAND || msgId == PDM2_COMMAND) && changed) {
+        Serial.print("🔵 PDM CMD CHANGED: 0x");
+        Serial.print(msgId, HEX);
+        Serial.print(" [");
+        for (int i = 0; i < dataLen; i++) {
+          if (i > 0) Serial.print(" ");
+          if (data[i] < 0x10) Serial.print("0");
+          Serial.print(data[i], HEX);
+        }
+        Serial.println("]");
+      }
+      
+      // Print PDM MESSAGE when they change (to see feedback)
+      if ((msgId == PDM1_MESSAGE || msgId == PDM2_MESSAGE) && changed) {
+        Serial.print("📊 PDM MSG CHANGED: 0x");
+        Serial.print(msgId, HEX);
+        Serial.print(" [");
+        for (int i = 0; i < dataLen; i++) {
+          if (i > 0) Serial.print(" ");
+          if (data[i] < 0x10) Serial.print("0");
+          Serial.print(data[i], HEX);
+        }
+        Serial.println("]");
+      }
+      
       // Decode important messages
       if (changed || !baselinesSet) {
         if (msgId == PDM1_COMMAND || msgId == PDM2_COMMAND) {
@@ -206,14 +278,16 @@ void loop() {
           decodeRixens(msgId, data, dataLen);
         } else if (msgId == TANK_LEVEL) {
           decodeTankLevel(msgId, data, dataLen);
+        } else if (msgId == THERMOSTAT_STATUS_1) {
+          decodeThermostatStatus(msgId, data, dataLen);
         }
       }
     }
     
     // Set baselines after 10 seconds
     if (!baselinesSet && millis() > 10000) {
-      uint8_t pdm1_16[7] = {0}, pdm1_712[7] = {0};
-      uint8_t pdm2_16[7] = {0}, pdm2_712[7] = {0};
+      uint8_t pdm1_16[8] = {0}, pdm1_712[8] = {0};
+      uint8_t pdm2_16[8] = {0}, pdm2_712[8] = {0};
       
       // Find PDM command messages and store their current values
       for (int i = 0; i < trackedCount; i++) {

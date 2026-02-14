@@ -310,7 +310,7 @@ resource "aws_iam_role_policy" "iot_dynamodb_policy" {
 resource "aws_iot_topic_rule" "store_telemetry" {
   name        = "${replace(var.thing_name, "-", "_")}_store_telemetry"
   enabled     = true
-  sql         = "SELECT *, timestamp() as server_timestamp FROM 'van/${var.thing_name}/telemetry'"
+  sql         = "SELECT *, timestamp() as server_timestamp, (timestamp() / 1000) + 1209600 as ttl FROM 'van/${var.thing_name}/telemetry'"
   sql_version = "2016-03-23"
   
   # SECURITY: Enable error logging to CloudWatch

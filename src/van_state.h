@@ -3,6 +3,14 @@
 
 #include <Arduino.h>
 
+// CAN message tracking structure (shared between main.cpp and web_server.h)
+struct MessageTracker {
+  uint32_t id;
+  uint32_t count;
+  uint8_t lastData[8];
+  uint8_t dlc;
+};
+
 // PDM channel structure with name and feedback current
 struct PDMChannel {
   const char* name;
@@ -46,15 +54,40 @@ struct VanState {
     {"AUX_POWER", 0, 0}            // 12
   };
   
-  // Heater data
+  // Heater data (from Rixen CAN messages - only when HVAC active)
   float glycolTemp = 0;
   float voltage = 0;
-  float fuelLevel = 0;        // Fuel level percentage
+  float fuelLevel = -1;       // Diesel fuel level % (-1 = no data)
   uint16_t fanSpeed = 0;      // Heater fan speed
   uint8_t heatSource = 0;     // Heat source (0x724)
   float cabinTemp = 0;        // Interior cabin temperature (°C)
   
+  // Tank levels (-1 = no data received yet)
+  float freshWaterLevel = -1;
+  float grayWaterLevel = -1;
+  
+  // AC state (from THERMOSTAT_STATUS_1)
+  uint8_t acOperatingMode = 0;  // 0=off, 1=cool, 2=heat, 3=auto, 4=fan
+  uint8_t acFanMode = 0;        // 0=auto, 1=always on
+  uint8_t acFanSpeed = 0;
+  float acSetpointCool = 20.0;  // celsius
+  
   unsigned long lastUpdate = 0;
+  
+  // Last digital input messages from PDM (for button press simulation)
+  // These come from messages with ID 0x14EF111E (PDM1) or 0x14EF111F (PDM2)
+  // with data[0] = 0xF0 (inputs 1-6) or 0xF8 (inputs 7-12)
+  // Note: IDs are raw 29-bit extended CAN IDs (no 0x80000000 flag)
+  // Initialize with fake messages so button simulation works even without receiving real 0xF0
+  struct {
+    uint32_t id;
+    uint8_t data[8];
+    uint8_t dlc;
+    unsigned long timestamp;
+  } lastPDM1inputs1to6 = {0x14EF111E, {0xF0, 0, 0, 0, 0, 0, 0, 0}, 8, 0},
+    lastPDM1inputs7to12 = {0x14EF111E, {0xF8, 0, 0, 0, 0, 0, 0, 0}, 8, 0},
+    lastPDM2inputs1to6 = {0x14EF111F, {0xF0, 0, 0, 0, 0, 0, 0, 0}, 8, 0},
+    lastPDM2inputs7to12 = {0x14EF111F, {0xF8, 0, 0, 0, 0, 0, 0, 0}, 8, 0};
 };
 
 extern VanState vanState;

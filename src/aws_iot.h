@@ -7,10 +7,19 @@
 #include <CAN.h>
 #include "config.h"
 #include "van_state.h"
+#include "can_messages.h"
+
+// Message tracking (defined in main.cpp)
+extern MessageTracker trackedMessages[];
+extern int trackedCount;
+extern int totalMsgCount;
+
+// Forward declaration of global PDM command function (defined in web_server.h)
+bool sendPDMCommand(int pdm, int channel, bool state);
 
 // MQTT configuration
 #define MQTT_PORT 8883
-#define PUBLISH_INTERVAL 30000   // Publish every 30 seconds
+#define PUBLISH_INTERVAL 60000   // Publish every 60 seconds
 #define RECONNECT_INTERVAL 5000  // Try reconnecting every 5 seconds
 
 class AWSIoT {
@@ -158,11 +167,11 @@ public:
     doc["timestamp"] = millis();
     doc["message_type"] = "telemetry";
     
-    // Add van state
-    doc["battery_voltage"] = vanState.voltage;
-    doc["glycol_temp"] = vanState.glycolTemp;
-    doc["cabin_temp"] = vanState.cabinTemp;
-    doc["fuel_level"] = vanState.fuelLevel;
+    // Add van state (round floats to avoid precision artifacts like 13.60000038)
+    doc["battery_voltage"] = round(vanState.voltage * 10.0) / 10.0;
+    doc["glycol_temp"] = round(vanState.glycolTemp * 100.0) / 100.0;
+    doc["cabin_temp"] = round(vanState.cabinTemp * 100.0) / 100.0;
+    doc["fuel_level"] = round(vanState.fuelLevel * 10.0) / 10.0;
     doc["fan_speed"] = vanState.fanSpeed;
     doc["heat_source"] = vanState.heatSource;
     
@@ -173,6 +182,11 @@ public:
       ch["name"] = vanState.pdm1[i].name;
       ch["state"] = vanState.pdm1[i].command;
       ch["amps"] = serialized(String(vanState.pdm1[i].feedbackAmps, 2));
+      
+      // Debug: Show awning lights (Ch5) value
+      if (i == 5) {
+        Serial.printf("   Ch5 (AWNING_LIGHTS) feedbackAmps = %.2fA\n", vanState.pdm1[i].feedbackAmps);
+      }
     }
     
     // PDM2 channels - command states and feedback amps
@@ -184,8 +198,39 @@ public:
       ch["amps"] = serialized(String(vanState.pdm2[i].feedbackAmps, 2));
     }
     
+    // Tank levels and AC state
+    doc["fresh_water"] = round(vanState.freshWaterLevel * 10.0) / 10.0;
+    doc["gray_water"] = round(vanState.grayWaterLevel * 10.0) / 10.0;
+    doc["ac_mode"] = vanState.acOperatingMode;
+    doc["ac_fan_speed"] = vanState.acFanSpeed;
+    doc["ac_setpoint"] = round(vanState.acSetpointCool * 10.0) / 10.0;
+    
+    // CAN bus diagnostics (so we can debug remotely via DynamoDB)
+    JsonObject canDiag = doc.createNestedObject("can_diag");
+    canDiag["total_msgs"] = totalMsgCount;
+    canDiag["unique_ids"] = trackedCount;
+    canDiag["free_heap"] = ESP.getFreeHeap();
+    
+    // Check if key CAN IDs have been seen
+    bool seenRixensGlycol = false, seenRixensFan = false, seenThermostat = false;
+    bool seenTank = false, seenPdm1Msg = false, seenPdm1Cmd = false;
+    for (int i = 0; i < trackedCount; i++) {
+      if (trackedMessages[i].id == RIXENS_GLYCOL) seenRixensGlycol = true;
+      else if (trackedMessages[i].id == RIXENS_RETURN4) seenRixensFan = true;
+      else if (trackedMessages[i].id == THERMOSTAT_AMBIENT_STATUS) seenThermostat = true;
+      else if (trackedMessages[i].id == TANK_LEVEL) seenTank = true;
+      else if (trackedMessages[i].id == PDM1_MESSAGE) seenPdm1Msg = true;
+      else if (trackedMessages[i].id == PDM1_COMMAND) seenPdm1Cmd = true;
+    }
+    canDiag["seen_rixens_glycol"] = seenRixensGlycol;
+    canDiag["seen_rixens_fan"] = seenRixensFan;
+    canDiag["seen_thermostat"] = seenThermostat;
+    canDiag["seen_tank"] = seenTank;
+    canDiag["seen_pdm1_msg"] = seenPdm1Msg;
+    canDiag["seen_pdm1_cmd"] = seenPdm1Cmd;
+    
     // Serialize to JSON string
-    char jsonBuffer[2048];  // Increased for large nested JSON payloads
+    char jsonBuffer[2560];  // Increased for diagnostics
     size_t len = serializeJson(doc, jsonBuffer);
     
     Serial.printf("🧠 Free heap after serialize: %d bytes\n", ESP.getFreeHeap());
@@ -279,53 +324,57 @@ public:
         return;
       }
       
-      Serial.printf("   Setting PDM%d Channel %d to %s\n", pdm, channel, state ? "ON" : "OFF");
+      Serial.printf("   PDM%d Channel %d -> TOGGLE (button simulation, state param ignored)\n", pdm, channel);
       
-      // Send CAN bus command
-      bool success = sendPDMCommand(pdm, channel, state);
+      // Use button press simulation for PDM1 lights
+      // NOTE: We ignore the 'state' parameter because these are momentary switches
+      // Each button press toggles the light regardless of requested state
+      bool success = false;
+      if (pdm == 1) {
+        if (channel == 2) success = pressCargo();       // Cargo lights
+        else if (channel == 3) success = pressReading(); // Reading lights  
+        else if (channel == 4) success = pressCabin();   // Cabin lights
+        else if (channel == 5) success = pressAwning();  // Awning lights
+        else {
+          Serial.printf("⚠️  PDM1 Channel %d not supported yet\n", channel);
+          publishCommandResponse(false, "Channel not supported", command);
+          return;
+        }
+      } else {
+        Serial.println("⚠️  PDM2 not supported yet");
+        publishCommandResponse(false, "PDM2 not supported", command);
+        return;
+      }
       
       if (success) {
-        publishCommandResponse(true, "Command sent to PDM", command);
+        publishCommandResponse(true, "Button press simulated", command);
       } else {
-        publishCommandResponse(false, "Failed to send CAN command", command);
+        publishCommandResponse(false, "Failed to simulate button press", command);
       }
-    } else {
+    }
+    // Handle AC/HVAC control
+    else if (strcmp(command, "set_ac") == 0) {
+      uint8_t mode = doc["parameters"]["mode"] | 0;
+      float tempF = doc["parameters"]["temp_f"] | 72.0;
+      uint8_t fanSpeed = doc["parameters"]["fan_speed"] | 64;
+      uint8_t fanMode = doc["parameters"]["fan_mode"] | 0;
+      
+      // Convert F to C
+      float tempC = (tempF - 32.0) * 5.0 / 9.0;
+      
+      Serial.printf("   AC: mode=%d temp=%.1fF(%.1fC) fan=%d speed=%d\n", mode, tempF, tempC, fanMode, fanSpeed);
+      
+      bool success = sendACCommand(mode, fanMode, fanSpeed, tempC);
+      publishCommandResponse(success, success ? "AC command sent" : "AC command failed", command);
+    }
+    else if (strcmp(command, "ac_off") == 0) {
+      bool success = sendACCommand(0, 0, 0, 20.0);
+      publishCommandResponse(success, success ? "AC turned off" : "AC off failed", command);
+    }
+    else {
       Serial.printf("⚠️  Unknown command: %s\n", command);
       publishCommandResponse(false, "Unknown command", command);
     }
-  }
-  
-  bool sendPDMCommand(int pdm, int channel, bool state) {
-    // PDM channels use CAN bus commands
-    // PDM1: 0x14EF1E11, PDM2: 0x14EF1F11
-    uint32_t canId = (pdm == 1) ? 0x14EF1E11 : 0x14EF1F11;
-    
-    // Build 8-byte PDM command message
-    // Byte 0: Channel number (1-12)
-    // Byte 1: State (0x00 = OFF, 0x01 = ON)
-    // Bytes 2-7: Reserved (0x00)
-    uint8_t data[8] = {0};
-    data[0] = (uint8_t)channel;
-    data[1] = state ? 0x01 : 0x00;
-    
-    Serial.printf("📤 Sending CAN: ID=0x%08X Data=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
-                  canId, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-    
-    // Send extended CAN frame
-    if (!CAN.beginExtendedPacket(canId)) {
-      Serial.println("❌ Failed to start CAN packet");
-      return false;
-    }
-    
-    CAN.write(data, 8);
-    
-    if (!CAN.endPacket()) {
-      Serial.println("❌ Failed to send CAN packet");
-      return false;
-    }
-    
-    Serial.println("✅ CAN command sent");
-    return true;
   }
   
   void publishCommandResponse(bool success, const char* message, const char* command) {

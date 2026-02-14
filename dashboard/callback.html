@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Authenticating...</title>
     <style>
         body {
@@ -59,8 +62,8 @@
     <script>
         // COGNITO_CONFIG will be injected by Terraform
         const COGNITO_CONFIG = {
-            domain: '${COGNITO_DOMAIN}',
-            clientId: '${COGNITO_CLIENT_ID}',
+            domain: 'storyteller-van-01-auth.auth.us-east-1.amazoncognito.com',
+            clientId: '6frrg18sjku91vd95hvgfc9eqh',
             redirectUri: window.location.origin + '/callback.html'
         };
 
@@ -104,14 +107,25 @@
 
                 const tokens = await response.json();
                 
-                // Store tokens in sessionStorage
+                // Store tokens in both sessionStorage and localStorage for persistence
+                localStorage.setItem('idToken', tokens.id_token);
+                localStorage.setItem('accessToken', tokens.access_token);
+                if (tokens.refresh_token) {
+                    localStorage.setItem('refreshToken', tokens.refresh_token);
+                }
+                localStorage.setItem('tokenExpiry', Date.now() + (tokens.expires_in * 1000));
+                
+                // Also store in sessionStorage for backwards compatibility
                 sessionStorage.setItem('id_token', tokens.id_token);
                 sessionStorage.setItem('access_token', tokens.access_token);
-                sessionStorage.setItem('refresh_token', tokens.refresh_token);
-                sessionStorage.setItem('token_expiry', Date.now() + (tokens.expires_in * 1000));
+                if (tokens.refresh_token) {
+                    sessionStorage.setItem('refresh_token', tokens.refresh_token);
+                }
 
                 // Decode ID token to get user info
                 const payload = JSON.parse(atob(tokens.id_token.split('.')[1]));
+                localStorage.setItem('userEmail', payload.email);
+                localStorage.setItem('userName', payload.name || payload.email);
                 sessionStorage.setItem('user_email', payload.email);
                 sessionStorage.setItem('user_name', payload.name || payload.email);
 
@@ -142,6 +156,19 @@
 
         // Start authentication flow
         handleCallback();
+        
+        // Register Service Worker for PWA with update detection
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(registration => {
+                    console.log('Service Worker registered');
+                    // Check for updates
+                    registration.update();
+                })
+                .catch(error => {
+                    console.error('Service Worker registration failed:', error);
+                });
+        }
     </script>
 </body>
 </html>

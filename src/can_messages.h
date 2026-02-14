@@ -16,6 +16,10 @@
 #define RIXENS_GLYCOL     0x726       // Glycol temp & voltage
 #define RIXENS_RETURN6    0x728       // Rixen response 6
 #define THERMOSTAT_AMBIENT_STATUS 0x19FF9C58  // Cabin temperature (extended ID)
-#define TANK_LEVEL        0x19FFB7AF  // Tank level (extended ID)
+#define THERMOSTAT_COMMAND_1  0x19FEF903      // AC control commands (extended ID)
+#define THERMOSTAT_STATUS_1   0x19FFE258      // AC status response (extended ID)
+#define ROOFFAN_STATUS        0x19FEA758      // Vent fan status (extended ID)
+#define ROOFFAN_CONTROL       0x19FEA603      // Vent fan commands (extended ID)
+#define TANK_LEVEL            0x19FFB7AF      // Tank level (extended ID)
 
 #endif
