@@ -103,15 +103,23 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
   
   uint8_t b0 = data[0];
   
-  // Track sub-message types for PDM1 (debug)
+  // Track sub-message types and save raw data for PDM1 (debug)
   if (pdm == 1) {
-    vanState.pdm1SubTypeCounts[b0 >> 4]++;  // Count by high nibble
+    vanState.pdm1SubTypeCounts[b0 >> 4]++;
+    // Save per-b0 raw data for debugging
+    if (b0 == 0xF9) memcpy(vanState.pdm1_lastF9, data, 8);
+    else if (b0 == 0xC9) memcpy(vanState.pdm1_lastC9, data, 8);
+    else if (b0 == 0x0A) memcpy(vanState.pdm1_last0A, data, 8);
+    else if (b0 == 0xFC) memcpy(vanState.pdm1_lastFC, data, 8);
+    else if (b0 == 0xFD) memcpy(vanState.pdm1_lastFD, data, 8);
+    else if (b0 == 0xFB) memcpy(vanState.pdm1_lastFB, data, 8);
+    else if (b0 == 0xFE) memcpy(vanState.pdm1_lastFE, data, 8);
+    else if (b0 == 0xF0) memcpy(vanState.pdm1_lastF0, data, 8);
+    else if (b0 == 0xF8) memcpy(vanState.pdm1_lastF8, data, 8);
   }
   
   // Channels 1-6 feedback (current draw in amps)
   if (b0 == 0xF9 || b0 == 0xC9 || b0 == 0x39) {
-    // Save raw data for debugging
-    if (pdm == 1) memcpy(vanState.lastPdm1FeedbackData, data, 8);
     for (int i = 1; i <= 6; i++) {
       float amps = feedbackAmps(data, i);
       if (pdm == 1) {

@@ -16,10 +16,65 @@ extern MessageTracker trackedMessages[];
 extern int trackedCount;
 extern int totalMsgCount;
 
-// Send a direct PDM command using the 0xFC/0xFD format
-// This is the same format the Firefly controller uses, so the command byte
-// state will accurately reflect what we set (visible on both dashboard and Firefly screen)
-// pdm: 1 or 2, channel: 1-12, pwmValue: 0 (off) to 255 (full brightness)
+// Button simulation: spoof a digital input message to toggle a PDM channel
+// This is what physically toggles lights -- the Firefly processes the simulated button press
+bool pressDigitalButton(uint32_t canId, uint8_t* lastData, uint8_t dlc, int dataIndex, int byteNum) {
+  if (dlc == 0) {
+    Serial.println("❌ No digital input data for button simulation");
+    return false;
+  }
+  
+  uint8_t andMask = 0xFF;
+  if (byteNum == 3) andMask = 0b00111111;
+  else if (byteNum == 2) andMask = 0b11001111;
+  else if (byteNum == 1) andMask = 0b11110011;
+  else if (byteNum == 0) andMask = 0b11111100;
+  uint8_t orMask = (0b10 << (byteNum * 2));
+  
+  uint8_t pressData[8];
+  memcpy(pressData, lastData, 8);
+  pressData[dataIndex] = (pressData[dataIndex] & andMask) | orMask;
+  
+  if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+  
+  if (!CAN.beginExtendedPacket(canId)) { xSemaphoreGive(canMutex); return false; }
+  CAN.write(pressData, dlc);
+  if (!CAN.endPacket()) { xSemaphoreGive(canMutex); return false; }
+  xSemaphoreGive(canMutex);
+  
+  delay(100);
+  
+  if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+  uint8_t releaseData[8];
+  memcpy(releaseData, lastData, 8);
+  releaseData[dataIndex] = releaseData[dataIndex] & andMask;
+  if (!CAN.beginExtendedPacket(canId)) { xSemaphoreGive(canMutex); return false; }
+  CAN.write(releaseData, dlc);
+  if (!CAN.endPacket()) { xSemaphoreGive(canMutex); return false; }
+  xSemaphoreGive(canMutex);
+  
+  Serial.println("✅ Button press simulated");
+  return true;
+}
+
+bool pressCargo() { return pressDigitalButton(PDM1_MESSAGE, vanState.lastPDM1inputs1to6.data, vanState.lastPDM1inputs1to6.dlc, 6, 1); }
+bool pressReading() { return pressDigitalButton(PDM1_MESSAGE, vanState.lastPDM1inputs1to6.data, vanState.lastPDM1inputs1to6.dlc, 6, 2); }
+bool pressCabin() { return pressDigitalButton(PDM1_MESSAGE, vanState.lastPDM1inputs1to6.data, vanState.lastPDM1inputs1to6.dlc, 6, 0); }
+bool pressAwning() { return pressDigitalButton(PDM1_MESSAGE, vanState.lastPDM1inputs1to6.data, vanState.lastPDM1inputs1to6.dlc, 7, 3); }
+
+// Toggle a light via button simulation (channels 2-5 on PDM1)
+bool toggleLightButton(int channel) {
+  switch (channel) {
+    case 2: return pressCargo();
+    case 3: return pressReading();
+    case 4: return pressCabin();
+    case 5: return pressAwning();
+    default: return false;
+  }
+}
+
+// Send a direct PDM command using the 0xFC/0xFD format (for dimming experiments)
+// NOTE: Does NOT physically toggle lights -- Firefly overrides these
 bool sendDirectPDMCommand(int pdm, int channel, uint8_t pwmValue) {
   if (channel < 1 || channel > 12) return false;
   
@@ -73,25 +128,27 @@ bool sendDirectPDMCommand(int pdm, int channel, uint8_t pwmValue) {
 }
 
 // Global PDM command function (used by both web server and AWS IoT)
-// brightness: 0-100 (percentage), or -1 for toggle
+// For light channels (PDM1 2-5): uses button simulation (physically toggles)
+// For other channels: uses direct PDM command
 bool sendPDMCommand(int pdm, int channel, int brightness) {
-  Serial.printf("🎮 Control request: PDM%d Ch%d brightness=%d%%\n", pdm, channel, brightness);
+  Serial.printf("🎮 Control: PDM%d Ch%d brightness=%d\n", pdm, channel, brightness);
   
-  if (pdm < 1 || pdm > 2 || channel < 1 || channel > 12) {
-    Serial.println("❌ Invalid PDM or channel");
-    return false;
+  if (pdm < 1 || pdm > 2 || channel < 1 || channel > 12) return false;
+  
+  // Light channels on PDM1 use button simulation (only way to physically toggle)
+  if (pdm == 1 && channel >= 2 && channel <= 5) {
+    Serial.println("→ Using button simulation for light toggle");
+    return toggleLightButton(channel);
   }
   
+  // Other channels use direct PDM command
   uint8_t pwmValue;
   if (brightness < 0) {
-    // Toggle: if currently on, turn off; if off, turn full on
     PDMChannel* channels = (pdm == 1) ? vanState.pdm1 : vanState.pdm2;
     pwmValue = (channels[channel].command > 0) ? 0 : 255;
   } else {
-    // Set specific brightness (0-100% mapped to 0-255)
     pwmValue = (uint8_t)((brightness * 255) / 100);
   }
-  
   return sendDirectPDMCommand(pdm, channel, pwmValue);
 }
 
@@ -327,14 +384,23 @@ void handleDebug() {
   }
   json += "},";
   
-  // Last raw 0xF9/0xC9 feedback data for PDM1
-  json += "\"pdm1_feedback_raw\":\"";
-  for (int i = 0; i < 8; i++) {
-    if (i > 0) json += " ";
-    if (vanState.lastPdm1FeedbackData[i] < 0x10) json += "0";
-    json += String(vanState.lastPdm1FeedbackData[i], HEX);
+  // Per-b0 raw data for PDM1_MESSAGE sub-types
+  const char* b0Names[] = {"F9","C9","0A","FC","FD","FB","FE","F0","F8"};
+  uint8_t* b0Ptrs[] = {vanState.pdm1_lastF9, vanState.pdm1_lastC9, vanState.pdm1_last0A,
+                        vanState.pdm1_lastFC, vanState.pdm1_lastFD, vanState.pdm1_lastFB,
+                        vanState.pdm1_lastFE, vanState.pdm1_lastF0, vanState.pdm1_lastF8};
+  json += "\"pdm1_raw\":{";
+  for (int t = 0; t < 9; t++) {
+    if (t > 0) json += ",";
+    json += "\"" + String(b0Names[t]) + "\":\"";
+    for (int i = 0; i < 8; i++) {
+      if (i > 0) json += " ";
+      if (b0Ptrs[t][i] < 0x10) json += "0";
+      json += String(b0Ptrs[t][i], HEX);
+    }
+    json += "\"";
   }
-  json += "\",";
+  json += "},";
   
   // PDM1 amps
   json += "\"pdm1_amps\":[";

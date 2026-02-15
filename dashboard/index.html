@@ -611,32 +611,29 @@
             <!-- Moved to user-header -->
         </header>
 
-        <div class="status-bar">
-            <div class="status-item">
-                <div class="status-label">Connection</div>
-                <span class="status-badge status-disconnected" id="connectionStatus">Connecting...</span>
-            </div>
-            <div class="status-item">
-                <div class="status-label">Van Update</div>
-                <div class="status-value" id="vanUpdate">--:--</div>
-            </div>
-            <div class="status-item">
-                <div class="status-label">Web Update</div>
-                <div class="status-value" id="webUpdate">--:--</div>
-            </div>
-            <div class="status-item">
-                <div class="status-label">Uptime</div>
-                <div class="status-value" id="uptime">--</div>
-            </div>
-        </div>
-
         <div id="content" class="loading">
             <div class="spinner" style="margin: 0 auto 20px;"></div>
             <div>Loading telemetry data...</div>
         </div>
+
+        <div class="status-bar" style="margin-top: 20px; opacity: 0.7; font-size: 0.85rem;">
+            <div class="status-item">
+                <div class="status-label">Connection</div>
+                <span class="status-badge status-disconnected" id="connectionStatus" style="font-size: 0.8rem;">Connecting...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Last Update</div>
+                <div class="status-value" id="vanUpdate" style="font-size: 1rem;">--:--</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Uptime</div>
+                <div class="status-value" id="uptime" style="font-size: 1rem;">--</div>
+            </div>
+        </div>
+        <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.3.0 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.3.1 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -921,12 +918,13 @@
             if (el) el.textContent = '...';
             lastCommandTime = Date.now();
             
-            // Toggle: send brightness=-1 which firmware interprets as toggle
-            const result = await sendCommand('set_light', {
+            // Use button simulation (set_pdm_channel) -- physically toggles lights
+            const result = await sendCommand('set_pdm_channel', {
                 pdm: pdm, channel: channel, brightness: -1
             });
             
             if (result.success && el) {
+                // Toggle the displayed state
                 const wasOn = el.classList.contains('active');
                 if (wasOn) { el.classList.remove('active'); el.textContent = 'OFF'; }
                 else { el.classList.add('active'); el.textContent = 'ON'; }
@@ -935,22 +933,14 @@
             }
         }
         
-        async function setLightBrightness(pdm, channel, percent) {
-            lastCommandTime = Date.now();
-            const result = await sendCommand('set_light', {
-                pdm: pdm, channel: channel, brightness: parseInt(percent)
-            });
-            if (!result.success) console.error('Brightness failed:', result.error);
-        }
-        
         async function toggleAllLights() {
             lastCommandTime = Date.now();
-            // Send brightness=0 (off) for all light channels
+            // Toggle all lights via button simulation
             const channels = [2, 3, 4, 5];
-            const promises = channels.map(ch => 
-                sendCommand('set_light', { pdm: 1, channel: ch, brightness: 0 })
-            );
-            await Promise.all(promises);
+            for (const ch of channels) {
+                await sendCommand('set_pdm_channel', { pdm: 1, channel: ch, brightness: -1 });
+                await new Promise(r => setTimeout(r, 200)); // Small delay between toggles
+            }
         }
         
         async function sendHVACCommand(mode, tempF, fanSpeed, fanMode) {
@@ -1195,17 +1185,13 @@
                     ${lightChannels.map(light => {
                         const ld = lightData[light.id];
                         return `
-                    <div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <div style="width: 70px; font-size: 0.9rem;">${light.name}</div>
                         <div class="pdm-channel ${ld.on ? 'active' : ''}" id="light-${light.id}"
                              onclick="toggleLight(1, ${light.channel})"
-                             style="width: 50px; text-align: center; padding: 6px 10px; cursor: pointer; font-size: 0.85rem; border-radius: 8px;">
+                             style="flex: 1; text-align: center; padding: 10px; cursor: pointer; font-size: 1rem; border-radius: 8px;">
                             ${ld.on ? 'ON' : 'OFF'}
                         </div>
-                        <input type="range" min="0" max="100" value="${ld.brightness}" 
-                               style="flex: 1; accent-color: #e94560;"
-                               onchange="setLightBrightness(1, ${light.channel}, this.value)">
-                        <div style="width: 35px; font-size: 0.8rem; opacity: 0.7; text-align: right;">${ld.brightness}%</div>
                     </div>`;
                     }).join('')}
                 </div>
@@ -1283,7 +1269,6 @@
         // Expose functions to global scope for onclick handlers in dynamically generated HTML
         window.toggleLight = toggleLight;
         window.toggleAllLights = toggleAllLights;
-        window.setLightBrightness = setLightBrightness;
         window.toggleHVACPower = toggleHVACPower;
         window.handleHVACSet = handleHVACSet;
         window.sendACOff = sendACOff;
