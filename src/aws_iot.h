@@ -389,14 +389,19 @@ public:
       delay(2000);
       ESP.restart();
     }
-    // CAN bus reset (without full reboot)
+    // CAN bus reset (without full reboot) - also clears tracking state
     else if (strcmp(command, "can_reset") == 0) {
       if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
         CAN.end();
         delay(100);
         CAN.begin(500E3);
         xSemaphoreGive(canMutex);
-        publishCommandResponse(true, "CAN bus reset", command);
+        // Reset tracking arrays so feedback data gets re-decoded
+        trackedCount = 0;
+        totalMsgCount = 0;
+        baselinesSet = false;
+        memset(trackedMessages, 0, sizeof(MessageTracker) * 100);
+        publishCommandResponse(true, "CAN bus and tracking reset", command);
       } else {
         publishCommandResponse(false, "Failed to acquire CAN mutex", command);
       }
