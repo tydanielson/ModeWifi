@@ -633,7 +633,7 @@
         <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.4.0 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.4.1 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -658,6 +658,7 @@
         let hvacIsOn = false;          // HVAC power relay on/off
         let hvacHeatOn = false;        // Heat mode active
         let hvacCoolOn = false;        // Cool mode active
+        let lastHeatSourceName = '';   // Updated from telemetry (Fuel/Electric/Dual)
 
         // Authentication helpers
         function getIdToken() {
@@ -858,6 +859,15 @@
         function getACModeName(mode) {
             const modes = ['Off', 'Cool', 'Heat', 'Auto', 'Fan Only', 'Aux Heat', 'Defrost'];
             return modes[mode] || 'Unknown';
+        }
+
+        function getHeatSourceName(src) {
+            const fuel = (src >> 3) & 1;
+            const electric = (src >> 4) & 1;
+            if (fuel && electric) return 'Dual';
+            if (fuel) return 'Fuel';
+            if (electric) return 'Electric';
+            return '';
         }
 
         function hasValue(v) {
@@ -1064,11 +1074,11 @@
             const tempInput = document.getElementById('hvacTemp');
             const tempF = tempInput ? tempInput.value : '72';
             if (hvacHeatOn && hvacCoolOn) {
-                statusEl.textContent = 'Heat + Cool at ' + tempF + '°F';
+                statusEl.textContent = 'Heat + Cool at ' + tempF + '\u00B0F';
             } else if (hvacHeatOn) {
-                statusEl.textContent = 'Heat at ' + tempF + '°F';
+                statusEl.textContent = 'Heat' + (lastHeatSourceName ? ' (' + lastHeatSourceName + ')' : '') + ' at ' + tempF + '\u00B0F';
             } else if (hvacCoolOn) {
-                statusEl.textContent = 'Cool at ' + tempF + '°F';
+                statusEl.textContent = 'Cool at ' + tempF + '\u00B0F';
             } else {
                 statusEl.textContent = 'On';
             }
@@ -1211,6 +1221,14 @@
             const fuelD = hasValue(data.fuel_level) && data.fuel_level >= 0 ? Math.round(data.fuel_level) : null;
             const acMode = data.ac_mode || 0;
             const acSetpoint = hasValue(data.ac_setpoint) ? celsiusToFahrenheit(data.ac_setpoint).toFixed(0) : '72';
+            // Rixens heater data (diesel heater reports even when thermostat status doesn't)
+            const heaterFanSpeed = data.fan_speed || 0;
+            const heatSource = data.heat_source || 0;
+            const glycolTemp = data.glycol_temp || 0;
+            const heatSourceName = getHeatSourceName(heatSource);
+            if (heatSourceName) lastHeatSourceName = heatSourceName;
+            // Detect heating: glycol rising above cabin temp OR heater fan running
+            const heatingActive = heaterFanSpeed > 0 || (glycolTemp > (cabinC || 0) + 5);
             // Check HVAC power relay state from PDM2 channel 9
             const hvacPwrCh = data.pdm2 && data.pdm2['9'];
             const hvacPwrState = hvacPwrCh ? (parseInt(hvacPwrCh.state) || 0) : 0;
@@ -1218,8 +1236,8 @@
             // Only let telemetry override HVAC state if no recent HVAC command (60s cooldown)
             const hvacCooldown = Date.now() - lastHVACCommandTime < 60000;
             if (!hvacCooldown) {
-                hvacIsOn = hvacPwrAmps > 0.01 || hvacPwrState > 0 || acMode > 0;
-                hvacHeatOn = acMode === 2 || acMode === 3;
+                hvacIsOn = hvacPwrAmps > 0.01 || hvacPwrState > 0 || acMode > 0 || heatingActive;
+                hvacHeatOn = acMode === 2 || acMode === 3 || heatingActive;
                 hvacCoolOn = acMode === 1 || acMode === 3;
             }
             
@@ -1280,7 +1298,7 @@
                         </button>
                     </div>
                     <div id="hvacStatus" style="text-align: center; margin-bottom: 12px; opacity: 0.8; font-size: 1.1rem;">
-                        ${hvacIsOn ? (hvacHeatOn || hvacCoolOn ? (hvacHeatOn && hvacCoolOn ? 'Heat + Cool' : (hvacHeatOn ? 'Heat' : 'Cool')) + ' at ' + acSetpoint + '°F' : 'On') : 'Off'}
+                        ${hvacIsOn ? (hvacHeatOn || hvacCoolOn ? (hvacHeatOn && hvacCoolOn ? 'Heat + Cool' : (hvacHeatOn ? 'Heat' + (heatSourceName ? ' (' + heatSourceName + ')' : '') : 'Cool')) + ' at ' + acSetpoint + '\u00B0F' : 'On') : 'Off'}
                     </div>
                     <div id="hvacSettings" style="display: ${hvacIsOn ? 'block' : 'none'};">
                         <div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
