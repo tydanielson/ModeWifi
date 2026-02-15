@@ -633,7 +633,7 @@
         <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.3.4 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.3.5 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -654,6 +654,7 @@
         
         let updateInterval;
         let lastCommandTime = 0;  // Track when last command was sent to avoid UI flicker
+        let hvacIsOn = false;      // Track HVAC on/off state from telemetry
 
         // Authentication helpers
         function getIdToken() {
@@ -943,73 +944,66 @@
             }
         }
         
-        async function sendHVACCommand(mode, tempF, fanSpeed, fanMode) {
+        async function sendHVACCommand(mode, tempF) {
             const btn = document.getElementById('hvacSetBtn');
             if (btn) { btn.classList.add('sending'); btn.textContent = 'Sending...'; }
             lastCommandTime = Date.now();
             
             const result = await sendCommand('set_ac', {
-                mode: mode, temp_f: tempF, fan_speed: fanSpeed, fan_mode: fanMode
+                mode: mode, temp_f: tempF, fan_speed: 64, fan_mode: 0
             });
             
             if (btn) {
                 btn.classList.remove('sending');
-                btn.textContent = result.success ? 'Sent!' : 'Failed';
+                if (result.success) {
+                    hvacIsOn = true;
+                    btn.textContent = 'Sent!';
+                } else {
+                    btn.textContent = 'Failed';
+                }
                 setTimeout(() => { if (btn.textContent === 'Sent!' || btn.textContent === 'Failed') btn.textContent = 'Set'; }, 3000);
             }
             if (!result.success) console.error('HVAC command failed:', result.error);
         }
         
-        async function sendACOff() {
-            const btn = document.getElementById('hvacOffBtn');
-            if (btn) { btn.classList.add('sending'); btn.textContent = 'Sending...'; }
-            lastCommandTime = Date.now();
-            
-            const result = await sendCommand('ac_off', {});
-            
-            if (btn) {
-                btn.classList.remove('sending');
-                btn.textContent = result.success ? 'Sent!' : 'Failed';
-                setTimeout(() => { if (btn.textContent === 'Sent!' || btn.textContent === 'Failed') btn.textContent = 'Off'; }, 3000);
-            }
-            if (!result.success) console.error('AC Off failed:', result.error);
-        }
-        
         async function toggleHVACPower() {
             const btn = document.getElementById('hvacPowerBtn');
-            const settings = document.getElementById('hvacSettings');
             if (!btn) return;
             
-            const isOn = btn.classList.contains('on');
-            btn.classList.add('sending');
             btn.textContent = 'Sending...';
             lastCommandTime = Date.now();
             
-            if (isOn) {
+            if (hvacIsOn) {
                 // Turn OFF
                 const result = await sendCommand('ac_off', {});
-                btn.classList.remove('sending');
                 if (result.success) {
-                    btn.classList.remove('on');
-                    btn.textContent = 'HVAC ON';
+                    hvacIsOn = false;
+                    btn.textContent = 'Turn On';
+                    btn.style.background = 'linear-gradient(135deg, #4CAF50, #66BB6A)';
+                    const settings = document.getElementById('hvacSettings');
                     if (settings) settings.style.display = 'none';
+                    const statusEl = document.getElementById('hvacStatus');
+                    if (statusEl) statusEl.textContent = 'Off';
                 } else {
                     btn.textContent = 'Failed';
-                    setTimeout(() => { btn.textContent = 'HVAC OFF'; }, 2000);
+                    setTimeout(() => { btn.textContent = 'Turn Off'; }, 2000);
                 }
             } else {
                 // Turn ON with Heat mode at 70F as default
                 const result = await sendCommand('set_ac', {
                     mode: 2, temp_f: 70, fan_speed: 64, fan_mode: 0
                 });
-                btn.classList.remove('sending');
                 if (result.success) {
-                    btn.classList.add('on');
-                    btn.textContent = 'HVAC OFF';
+                    hvacIsOn = true;
+                    btn.textContent = 'Turn Off';
+                    btn.style.background = 'linear-gradient(135deg, #e94560, #ff6b8a)';
+                    const settings = document.getElementById('hvacSettings');
                     if (settings) settings.style.display = 'flex';
+                    const statusEl = document.getElementById('hvacStatus');
+                    if (statusEl) statusEl.textContent = 'Heat at 70°F';
                 } else {
                     btn.textContent = 'Failed';
-                    setTimeout(() => { btn.textContent = 'HVAC ON'; }, 2000);
+                    setTimeout(() => { btn.textContent = 'Turn On'; }, 2000);
                 }
             }
         }
@@ -1036,15 +1030,12 @@
         function handleHVACSet() {
             const modeSelect = document.getElementById('hvacMode');
             const tempInput = document.getElementById('hvacTemp');
-            const fanSelect = document.getElementById('hvacFan');
             if (!modeSelect || !tempInput) return;
             
             const mode = parseInt(modeSelect.value);
             const tempF = parseFloat(tempInput.value) || 72;
-            const fanMode = parseInt(fanSelect.value) || 0;
-            const fanSpeed = 64;  // Default speed
             
-            sendHVACCommand(mode, tempF, fanSpeed, fanMode);
+            sendHVACCommand(mode, tempF);
         }
         
         async function fetchTelemetry() {
@@ -1150,6 +1141,7 @@
             const fuelD = hasValue(data.fuel_level) && data.fuel_level >= 0 ? Math.round(data.fuel_level) : null;
             const acMode = data.ac_mode || 0;
             const acSetpoint = hasValue(data.ac_setpoint) ? celsiusToFahrenheit(data.ac_setpoint).toFixed(0) : '72';
+            hvacIsOn = acMode > 0;
             
             const inputStyle = 'padding: 8px 12px; border-radius: 8px; border: 1px solid #4a5568; background: #1a202c; color: #fff; font-size: 0.95rem;';
             const btnGreen = 'padding: 8px 20px; border-radius: 8px; border: none; background: linear-gradient(135deg, #4CAF50, #66BB6A); color: #fff; font-weight: 600; cursor: pointer;';
@@ -1207,26 +1199,20 @@
                             ${acMode > 0 ? 'Turn Off' : 'Turn On'}
                         </button>
                     </div>
-                    ${acMode > 0 ? `<div style="text-align: center; margin-bottom: 12px; opacity: 0.8;">${getACModeName(acMode)} at ${acSetpoint}°F</div>` : ''}
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center;">
+                    <div id="hvacStatus" style="text-align: center; margin-bottom: 12px; opacity: 0.8; font-size: 1.1rem;">
+                        ${acMode > 0 ? `${getACModeName(acMode)} at ${acSetpoint}°F` : 'Off'}
+                    </div>
+                    <div id="hvacSettings" style="display: ${acMode > 0 ? 'flex' : 'none'}; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center;">
                         <div>
                             <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Mode</label>
                             <select id="hvacMode" style="${inputStyle}">
-                                <option value="1" ${acMode === 1 ? 'selected' : ''}>Cool</option>
                                 <option value="2" ${acMode === 2 ? 'selected' : ''}>Heat</option>
-                                <option value="4" ${acMode === 4 ? 'selected' : ''}>Fan Only</option>
+                                <option value="1" ${acMode === 1 ? 'selected' : ''}>Cool</option>
                             </select>
                         </div>
                         <div>
                             <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Temp °F</label>
                             <input id="hvacTemp" type="number" min="55" max="90" value="${acSetpoint}" style="${inputStyle} width: 70px;">
-                        </div>
-                        <div>
-                            <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Fan</label>
-                            <select id="hvacFan" style="${inputStyle}">
-                                <option value="0">Auto</option>
-                                <option value="1">On</option>
-                            </select>
                         </div>
                         <button id="hvacSetBtn" onclick="handleHVACSet()" style="${btnGreen}">Set</button>
                     </div>
@@ -1274,7 +1260,6 @@
         window.toggleAllLights = toggleAllLights;
         window.toggleHVACPower = toggleHVACPower;
         window.handleHVACSet = handleHVACSet;
-        window.sendACOff = sendACOff;
         window.sendVentOpen = sendVentOpen;
         window.sendVentClose = sendVentClose;
         window.sendVentSet = sendVentSet;
