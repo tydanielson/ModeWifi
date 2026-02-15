@@ -162,16 +162,15 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
   }
   
   // Supply voltage (battery) from PDM - 0xFB message
-  // Per original ModeWifi: voltage = (data[7] * 256 + data[6]) / 256.0
+  // Only use as fallback if Rixen 0x726 hasn't provided voltage (Rixen is more reliable)
   else if (b0 == 0xFB) {
     float fVoltage = (data[7] * 256.0 + data[6]) / 256.0;
-    vanState.voltage = fVoltage;
-    vanState.lastUpdate = millis();
-    
-    if (!baselinesSet) {
-      Serial.print("  -> Battery Voltage: ");
-      Serial.print(fVoltage, 1);
-      Serial.println("V");
+    if (vanState.voltage < 1.0 && fVoltage >= 10.0 && fVoltage <= 16.0) {
+      vanState.voltage = fVoltage;
+      vanState.lastUpdate = millis();
+      if (!baselinesSet) {
+        Serial.printf("  -> Battery Voltage (PDM): %.1fV\n", fVoltage);
+      }
     }
   }
   

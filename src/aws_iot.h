@@ -160,7 +160,7 @@ public:
     
     Serial.printf("🧠 Free heap: %d bytes\n", ESP.getFreeHeap());
     
-    StaticJsonDocument<3072> doc;  // Increased size for 24 PDM channels with nested objects + overhead
+    StaticJsonDocument<4096> doc;  // Size for PDM channels + CAN diagnostics + ID list
     
     // Add metadata
     doc["thing_name"] = THING_NAME;
@@ -229,8 +229,20 @@ public:
     canDiag["seen_pdm1_msg"] = seenPdm1Msg;
     canDiag["seen_pdm1_cmd"] = seenPdm1Cmd;
     
+    // Full CAN ID list for remote diagnosis
+    JsonArray canIds = doc.createNestedArray("can_ids");
+    for (int i = 0; i < trackedCount && i < 25; i++) {
+      JsonObject entry = canIds.createNestedObject();
+      char hexId[12];
+      sprintf(hexId, "0x%X", trackedMessages[i].id);
+      entry["id"] = hexId;
+      entry["n"] = trackedMessages[i].count;
+      entry["b0"] = trackedMessages[i].lastData[0];
+      entry["dlc"] = trackedMessages[i].dlc;
+    }
+    
     // Serialize to JSON string
-    char jsonBuffer[2560];  // Increased for diagnostics
+    char jsonBuffer[3072];  // Increased for CAN ID list
     size_t len = serializeJson(doc, jsonBuffer);
     
     Serial.printf("🧠 Free heap after serialize: %d bytes\n", ESP.getFreeHeap());
@@ -370,6 +382,24 @@ public:
     else if (strcmp(command, "ac_off") == 0) {
       bool success = sendACCommand(0, 0, 0, 20.0);
       publishCommandResponse(success, success ? "AC turned off" : "AC off failed", command);
+    }
+    // Remote restart
+    else if (strcmp(command, "restart") == 0) {
+      publishCommandResponse(true, "Restarting in 2 seconds", command);
+      delay(2000);
+      ESP.restart();
+    }
+    // CAN bus reset (without full reboot)
+    else if (strcmp(command, "can_reset") == 0) {
+      if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        CAN.end();
+        delay(100);
+        CAN.begin(500E3);
+        xSemaphoreGive(canMutex);
+        publishCommandResponse(true, "CAN bus reset", command);
+      } else {
+        publishCommandResponse(false, "Failed to acquire CAN mutex", command);
+      }
     }
     else {
       Serial.printf("⚠️  Unknown command: %s\n", command);

@@ -656,6 +656,7 @@
         };
         
         let updateInterval;
+        let lastCommandTime = 0;  // Track when last command was sent to avoid UI flicker
 
         // Authentication helpers
         function getIdToken() {
@@ -897,61 +898,40 @@
         }
         
         async function toggleLight(pdm, channel) {
-            const lightMapping = {
-                2: 'cargo',
-                3: 'reading',
-                4: 'cabin',
-                5: 'awning'
-            };
+            const lightMapping = { 2: 'cargo', 3: 'reading', 4: 'cabin', 5: 'awning' };
             const lightId = lightMapping[channel];
-            if (!lightId) {
-                console.error('Invalid channel:', channel);
-                return;
-            }
+            if (!lightId) return;
             
-            const elementId = `light-${lightId}`;
-            const lightElement = document.getElementById(elementId);
-            if (!lightElement) {
-                console.error('Light element not found:', elementId);
-                return;
-            }
+            const lightElement = document.getElementById(`light-${lightId}`);
+            if (!lightElement) return;
             
-            // Determine current state - check if element has 'active' class
-            const isCurrentlyOn = lightElement.classList.contains('active');
-            const newState = !isCurrentlyOn;
-            
-            console.log(`Toggling light PDM${pdm} CH${channel} (${lightId}) from ${isCurrentlyOn ? 'ON' : 'OFF'} to ${newState ? 'ON' : 'OFF'}`);
-            
+            const valueEl = lightElement.querySelector('.pdm-channel-value');
             lightElement.classList.add('sending');
+            if (valueEl) valueEl.textContent = 'Sending...';
+            lastCommandTime = Date.now();
             
             try {
                 const result = await sendCommand('set_pdm_channel', {
-                    pdm: pdm,
-                    channel: channel,
-                    state: newState
+                    pdm: pdm, channel: channel, state: true
                 });
-                
-                console.log('Command result:', result);
                 
                 lightElement.classList.remove('sending');
                 
                 if (result.success) {
-                    console.log('Command successful, updating UI');
-                    if (newState) {
-                        lightElement.classList.add('active');
-                        lightElement.querySelector('.pdm-channel-value').textContent = 'ON';
-                    } else {
-                        lightElement.classList.remove('active');
-                        lightElement.querySelector('.pdm-channel-value').textContent = 'OFF';
-                    }
+                    if (valueEl) valueEl.textContent = 'Sent!';
+                    setTimeout(() => {
+                        if (valueEl && valueEl.textContent === 'Sent!') {
+                            valueEl.textContent = 'Toggle sent';
+                        }
+                    }, 3000);
                 } else {
+                    if (valueEl) valueEl.textContent = 'Failed';
                     console.error('Command failed:', result.error);
-                    alert(`Failed to control light: ${result.error || 'Unknown error'}`);
                 }
             } catch (error) {
-                console.error('Exception in toggleLight:', error);
                 lightElement.classList.remove('sending');
-                alert(`Error: ${error.message}`);
+                if (valueEl) valueEl.textContent = 'Error';
+                console.error('Exception in toggleLight:', error);
             }
         }
         
@@ -959,80 +939,69 @@
             const btn = document.getElementById('allLightsBtn');
             if (!btn) return;
             
-            const isAnyOn = btn.classList.contains('on');
-            const newState = !isAnyOn;
-            
             btn.classList.add('sending');
             btn.textContent = 'SENDING...';
+            lastCommandTime = Date.now();
             
-            // Toggle all 4 light channels
             const lightChannels = [2, 3, 4, 5];
             const promises = lightChannels.map(channel => 
-                sendCommand('set_pdm_channel', {
-                    pdm: 1,
-                    channel: channel,
-                    state: newState
-                })
+                sendCommand('set_pdm_channel', { pdm: 1, channel: channel, state: true })
             );
             
-            await Promise.all(promises);
+            const results = await Promise.all(promises);
+            const allOk = results.every(r => r.success);
             
             btn.classList.remove('sending');
+            btn.textContent = allOk ? 'SENT!' : 'SOME FAILED';
             
-            if (newState) {
-                btn.classList.add('on');
-                btn.textContent = 'ALL LIGHTS OFF';
-            } else {
-                btn.classList.remove('on');
-                btn.textContent = 'ALL LIGHTS ON';
-            }
-            
-            // Update UI immediately
+            // Show individual button feedback
+            const lightMapping = {2: 'cargo', 3: 'reading', 4: 'cabin', 5: 'awning'};
             lightChannels.forEach(channel => {
-                const lightMapping = {2: 'cargo', 3: 'reading', 4: 'cabin', 5: 'awning'};
-                const lightId = lightMapping[channel];
-                const element = document.getElementById(`light-${lightId}`);
-                if (element) {
-                    if (newState) {
-                        element.classList.add('active');
-                        element.querySelector('.pdm-channel-value').textContent = 'ON';
-                    } else {
-                        element.classList.remove('active');
-                        element.querySelector('.pdm-channel-value').textContent = 'OFF';
-                    }
+                const el = document.getElementById(`light-${lightMapping[channel]}`);
+                if (el) {
+                    const v = el.querySelector('.pdm-channel-value');
+                    if (v) v.textContent = 'Sent!';
                 }
             });
+            
+            setTimeout(() => {
+                const b = document.getElementById('allLightsBtn');
+                if (b && (b.textContent === 'SENT!' || b.textContent === 'SOME FAILED')) {
+                    b.textContent = 'ALL LIGHTS TOGGLE';
+                }
+            }, 3000);
         }
         
         async function sendHVACCommand(mode, tempF, fanSpeed, fanMode) {
             const btn = document.getElementById('hvacSetBtn');
             if (btn) { btn.classList.add('sending'); btn.textContent = 'Sending...'; }
+            lastCommandTime = Date.now();
             
             const result = await sendCommand('set_ac', {
-                mode: mode,
-                temp_f: tempF,
-                fan_speed: fanSpeed,
-                fan_mode: fanMode
+                mode: mode, temp_f: tempF, fan_speed: fanSpeed, fan_mode: fanMode
             });
             
-            if (btn) { btn.classList.remove('sending'); btn.textContent = 'Set'; }
-            
-            if (!result.success) {
-                alert(`HVAC command failed: ${result.error || 'Unknown error'}`);
+            if (btn) {
+                btn.classList.remove('sending');
+                btn.textContent = result.success ? 'Sent!' : 'Failed';
+                setTimeout(() => { if (btn.textContent === 'Sent!' || btn.textContent === 'Failed') btn.textContent = 'Set'; }, 3000);
             }
+            if (!result.success) console.error('HVAC command failed:', result.error);
         }
         
         async function sendACOff() {
             const btn = document.getElementById('hvacOffBtn');
             if (btn) { btn.classList.add('sending'); btn.textContent = 'Sending...'; }
+            lastCommandTime = Date.now();
             
             const result = await sendCommand('ac_off', {});
             
-            if (btn) { btn.classList.remove('sending'); btn.textContent = 'Off'; }
-            
-            if (!result.success) {
-                alert(`AC Off failed: ${result.error || 'Unknown error'}`);
+            if (btn) {
+                btn.classList.remove('sending');
+                btn.textContent = result.success ? 'Sent!' : 'Failed';
+                setTimeout(() => { if (btn.textContent === 'Sent!' || btn.textContent === 'Failed') btn.textContent = 'Off'; }, 3000);
             }
+            if (!result.success) console.error('AC Off failed:', result.error);
         }
         
         function handleHVACSet() {
@@ -1078,7 +1047,17 @@
                 const result = await response.json();
 
                 if (result.success && result.data) {
-                    updateUI(result.data, result.server_timestamp);
+                    // Skip full UI re-render for 5 seconds after a command
+                    // so "Sent!" feedback isn't immediately overwritten
+                    const commandCooldown = Date.now() - lastCommandTime < 5000;
+                    if (!commandCooldown) {
+                        updateUI(result.data, result.server_timestamp);
+                    } else {
+                        // Still update status bar timestamps even during cooldown
+                        const ts = result.server_timestamp ? new Date(result.server_timestamp) : new Date();
+                        document.getElementById('vanUpdate').textContent = formatTime(ts);
+                        document.getElementById('webUpdate').textContent = formatTime(new Date());
+                    }
                     
                     // Update connection status
                     const statusBadge = document.getElementById('connectionStatus');
