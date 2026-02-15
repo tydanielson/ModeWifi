@@ -633,7 +633,7 @@
         <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.3.3 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.3.4 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -1076,9 +1076,10 @@
                 const result = await response.json();
 
                 if (result.success && result.data) {
-                    // Skip full UI re-render for 65 seconds after a command
-                    // (one full telemetry cycle) so toggle state isn't overwritten by stale data
-                    const commandCooldown = Date.now() - lastCommandTime < 65000;
+                    // Skip full UI re-render for 8 seconds after a command
+                    // The firmware forces a telemetry publish 3s after command,
+                    // so fresh data arrives within ~8s
+                    const commandCooldown = Date.now() - lastCommandTime < 8000;
                     if (!commandCooldown) {
                         updateUI(result.data, result.server_timestamp);
                     } else {

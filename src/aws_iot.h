@@ -153,9 +153,15 @@ public:
       return;  // Silently skip if not connected
     }
     
-    // Check if it's time to publish
-    if (millis() - lastPublishTime < PUBLISH_INTERVAL) {
+    // Check if it's time to publish (or if a command forced an early publish)
+    extern unsigned long lastPublishOverride;
+    bool forcePublish = (lastPublishOverride > 0 && millis() - lastPublishOverride > 3000);
+    if (!forcePublish && millis() - lastPublishTime < PUBLISH_INTERVAL) {
       return;
+    }
+    if (forcePublish) {
+      lastPublishOverride = 0;  // Reset the override
+      Serial.println("📤 Force publishing after command...");
     }
     
     Serial.printf("🧠 Free heap: %d bytes\n", ESP.getFreeHeap());

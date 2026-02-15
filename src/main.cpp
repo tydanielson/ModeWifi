@@ -44,6 +44,7 @@ VanState vanState;
 MessageTracker trackedMessages[100];  // Increased from 50 for safety
 int trackedCount = 0;
 int totalMsgCount = 0;  // Exposed for debug endpoint
+unsigned long lastPublishOverride = 0;  // Set by command handlers to force early telemetry publish
 
 // CAN bus mutex for thread-safe access between cores
 SemaphoreHandle_t canMutex;

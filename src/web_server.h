@@ -64,13 +64,26 @@ bool pressAwning() { return pressDigitalButton(PDM1_MESSAGE, vanState.lastPDM1in
 
 // Toggle a light via button simulation (channels 2-5 on PDM1)
 bool toggleLightButton(int channel) {
+  // Reset amps and command for this channel before toggle
+  // This ensures stale non-zero data doesn't persist if the light turns off
+  vanState.pdm1[channel].feedbackAmps = 0;
+  vanState.pdm1[channel].command = 0;
+  
+  bool success = false;
   switch (channel) {
-    case 2: return pressCargo();
-    case 3: return pressReading();
-    case 4: return pressCabin();
-    case 5: return pressAwning();
+    case 2: success = pressCargo(); break;
+    case 3: success = pressReading(); break;
+    case 4: success = pressCabin(); break;
+    case 5: success = pressAwning(); break;
     default: return false;
   }
+  
+  // Force next telemetry publish immediately (reset the throttle timer)
+  // This way the dashboard gets fresh data within seconds, not 60s
+  extern unsigned long lastPublishOverride;
+  lastPublishOverride = millis();
+  
+  return success;
 }
 
 // Send a direct PDM command using the 0xFC/0xFD format (for dimming experiments)
