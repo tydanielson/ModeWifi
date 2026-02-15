@@ -482,6 +482,28 @@ void handleDebug() {
   server.send(200, "application/json", json);
 }
 
+void handleRestart() {
+  server.send(200, "application/json", "{\"success\":true,\"message\":\"Restarting in 2 seconds\"}");
+  delay(2000);
+  ESP.restart();
+}
+
+void handleCANReset() {
+  if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+    CAN.end();
+    delay(100);
+    CAN.begin(500E3);
+    xSemaphoreGive(canMutex);
+    trackedCount = 0;
+    totalMsgCount = 0;
+    baselinesSet = false;
+    memset(trackedMessages, 0, sizeof(MessageTracker) * 100);
+    server.send(200, "application/json", "{\"success\":true,\"message\":\"CAN bus reset\"}");
+  } else {
+    server.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to acquire CAN mutex\"}");
+  }
+}
+
 void setupWebServer() {
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
@@ -489,6 +511,8 @@ void setupWebServer() {
   server.on("/api/hvac", handleHVAC);
   server.on("/api/vent", handleVent);
   server.on("/api/debug", handleDebug);
+  server.on("/api/restart", handleRestart);
+  server.on("/api/can-reset", handleCANReset);
   server.begin();
 }
 
