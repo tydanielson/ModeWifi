@@ -246,22 +246,38 @@ void handleControl() {
 // AC thermostat control - sends command on THERMOSTAT_COMMAND_1
 // Operating modes: 0=Off, 1=Cool, 2=Heat, 3=Auto, 4=Fan Only
 // Fan modes: 0=Auto, 1=Always On
-bool sendACCommand(uint8_t operatingMode, uint8_t fanMode, uint8_t fanSpeed, float setpointCoolC) {
-  // Encode cool setpoint: (tempC + 273.0) / 0.03125
-  int encoded = (int)((setpointCoolC + 273.0) / 0.03125);
+bool sendACCommand(uint8_t operatingMode, uint8_t fanMode, uint8_t fanSpeed, float setpointC) {
+  // Encode setpoint: (tempC + 273.0) / 0.03125
+  int encoded = (int)((setpointC + 273.0) / 0.03125);
+  uint8_t spLo = (uint8_t)(encoded & 0xFF);
+  uint8_t spHi = (uint8_t)((encoded >> 8) & 0xFF);
+  
+  // Place setpoint in correct bytes based on mode:
+  //   Heat (mode 2): bytes 3-4 = heat setpoint, bytes 5-6 = 0xFF (no change)
+  //   Cool (mode 1): bytes 3-4 = 0xFF (no change), bytes 5-6 = cool setpoint
+  //   Off  (mode 0): both setpoints don't matter
+  uint8_t heatLo, heatHi, coolLo, coolHi;
+  if (operatingMode == 2) {
+    // Heat mode: user temp goes in heat setpoint
+    heatLo = spLo; heatHi = spHi;
+    coolLo = 0xFF; coolHi = 0xFF;
+  } else {
+    // Cool mode (or off/auto): user temp goes in cool setpoint
+    heatLo = 0xFF; heatHi = 0xFF;
+    coolLo = spLo; coolHi = spHi;
+  }
   
   uint8_t data[8] = {
-    1,                                       // data[0] = always 1
+    1,                                       // data[0] = instance
     (uint8_t)((fanMode << 4) | operatingMode), // data[1] = fan mode + op mode
     fanSpeed,                                // data[2] = fan speed 0-255
-    0xF9, 0x24,                              // data[3-4] = heat setpoint (default)
-    (uint8_t)(encoded & 0xFF),               // data[5] = cool setpoint low byte
-    (uint8_t)((encoded >> 8) & 0xFF),        // data[6] = cool setpoint high byte
+    heatLo, heatHi,                          // data[3-4] = heat setpoint
+    coolLo, coolHi,                          // data[5-6] = cool setpoint
     0                                        // data[7]
   };
   
-  Serial.printf("🌡️ AC Command: mode=%d fan=%d speed=%d setpoint=%.1fC\n",
-    operatingMode, fanMode, fanSpeed, setpointCoolC);
+  Serial.printf("🌡️ AC Command: mode=%d fan=%d speed=%d setpoint=%.1fC (heat=%02X%02X cool=%02X%02X)\n",
+    operatingMode, fanMode, fanSpeed, setpointC, heatHi, heatLo, coolHi, coolLo);
   
   if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
     Serial.println("❌ Failed to acquire CAN mutex for AC command");

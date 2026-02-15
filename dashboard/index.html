@@ -633,7 +633,7 @@
         <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.3.6 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.3.7 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -977,9 +977,12 @@
             lastHVACCommandTime = Date.now();
             
             if (hvacIsOn) {
-                // Turn OFF
-                const result = await sendCommand('ac_off', {});
-                if (result.success) {
+                // Turn OFF: thermostat off, then HVAC power relay off
+                const acResult = await sendCommand('ac_off', {});
+                await new Promise(r => setTimeout(r, 500));
+                const pwrResult = await sendCommand('set_pdm_channel', { pdm: 2, channel: 9, brightness: 0 });
+                
+                if (acResult.success) {
                     hvacIsOn = false;
                     btn.textContent = 'Turn On';
                     btn.style.background = 'linear-gradient(135deg, #4CAF50, #66BB6A)';
@@ -992,11 +995,14 @@
                     setTimeout(() => { btn.textContent = 'Turn Off'; }, 2000);
                 }
             } else {
-                // Turn ON with Heat mode at 70F as default
-                const result = await sendCommand('set_ac', {
+                // Turn ON: HVAC power relay on, then thermostat to Heat 70F
+                const pwrResult = await sendCommand('set_pdm_channel', { pdm: 2, channel: 9, brightness: 100 });
+                await new Promise(r => setTimeout(r, 1000)); // Give HVAC time to power up
+                const acResult = await sendCommand('set_ac', {
                     mode: 2, temp_f: 70, fan_speed: 64, fan_mode: 0
                 });
-                if (result.success) {
+                
+                if (pwrResult.success && acResult.success) {
                     hvacIsOn = true;
                     btn.textContent = 'Turn Off';
                     btn.style.background = 'linear-gradient(135deg, #e94560, #ff6b8a)';
