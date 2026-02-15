@@ -208,31 +208,29 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
 // Decode tank level messages (fuel, water, etc.)
 void decodeTankLevel(uint32_t id, uint8_t* data, int len) {
   // Tank level message: b[0]=tank type, b[1]=level, b[2]=resolution
+  // RV-C tank types: 0x00=fresh, 0x01=black, 0x02=gray, 0x03=LPG, 0x04=diesel
   if (id == TANK_LEVEL && len >= 3) {
     uint8_t tankType = data[0];
     uint8_t level = data[1];
     uint8_t resolution = data[2];
     float pct = (resolution > 0) ? (level * 100.0) / resolution : level;
     
+    // Log ALL tank messages for debugging
+    Serial.printf("TANK: type=0x%02X level=%d res=%d pct=%.1f%% raw=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
+      tankType, level, resolution, pct,
+      data[0], data[1], data[2], len>3?data[3]:0, len>4?data[4]:0, len>5?data[5]:0, len>6?data[6]:0, len>7?data[7]:0);
+    
     if (tankType == 0x00) {
-      // Fresh water
       vanState.freshWaterLevel = pct;
-      if (!baselinesSet) {
-        Serial.printf("  -> FRESH WATER: %d/%d = %.1f%%\n", level, resolution, pct);
-      }
+    } else if (tankType == 0x01) {
+      // Black water -- ignore for now (Storyteller doesn't have black tank)
     } else if (tankType == 0x02) {
-      // Gray water
       vanState.grayWaterLevel = pct;
-      if (!baselinesSet) {
-        Serial.printf("  -> GRAY WATER: %d/%d = %.1f%%\n", level, resolution, pct);
-      }
-    } else {
-      // Diesel fuel
+    } else if (tankType == 0x04) {
+      // Diesel fuel (RV-C type 0x04)
       vanState.fuelLevel = pct;
-      if (!baselinesSet) {
-        Serial.printf("  -> FUEL: %d/%d = %.1f%%\n", level, resolution, pct);
-      }
     }
+    // Ignore unknown types -- don't blindly assign to fuel
     vanState.lastUpdate = millis();
   }
 }
