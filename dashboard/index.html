@@ -636,7 +636,7 @@
         </div>
         
         <div class="footer">
-            Skadi Van Monitor v1.1.1 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.1.2 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -1093,7 +1093,7 @@
             const content = document.getElementById('content');
             content.className = '';
             
-            // Light states from PDM1 feedback amps
+            // Light states from PDM1 command state AND feedback amps
             const lightChannels = [
                 { channel: 2, name: 'Cargo Lights', id: 'cargo' },
                 { channel: 3, name: 'Reading Light', id: 'reading' },
@@ -1105,8 +1105,11 @@
             let anyLightOn = false;
             lightChannels.forEach(light => {
                 if (data.pdm1 && data.pdm1[light.channel]) {
-                    const currentDraw = parseFloat(data.pdm1[light.channel].amps) || 0;
-                    lightStates[light.id] = currentDraw > 0.01;
+                    const ch = data.pdm1[light.channel];
+                    const currentDraw = parseFloat(ch.amps) || 0;
+                    const cmdState = parseInt(ch.state) || 0;
+                    // Light is ON if drawing current OR command state says on
+                    lightStates[light.id] = currentDraw > 0.01 || cmdState > 0;
                     if (lightStates[light.id]) anyLightOn = true;
                 } else {
                     lightStates[light.id] = false;
