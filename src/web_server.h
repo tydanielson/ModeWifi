@@ -16,170 +16,83 @@ extern MessageTracker trackedMessages[];
 extern int trackedCount;
 extern int totalMsgCount;
 
-// Simulate a digital button press by modifying the last received digital input message
-// This is the same approach the original ModeWifi author used
-bool pressDigitalButton(uint32_t canId, uint8_t* lastData, uint8_t dlc, int dataIndex, int byteNum) {
-  if (dlc == 0) {
-    Serial.println("❌ No previous digital input message to simulate button press");
-    return false;
+// Send a direct PDM command using the 0xFC/0xFD format
+// This is the same format the Firefly controller uses, so the command byte
+// state will accurately reflect what we set (visible on both dashboard and Firefly screen)
+// pdm: 1 or 2, channel: 1-12, pwmValue: 0 (off) to 255 (full brightness)
+bool sendDirectPDMCommand(int pdm, int channel, uint8_t pwmValue) {
+  if (channel < 1 || channel > 12) return false;
+  
+  uint32_t canId = (pdm == 1) ? PDM1_COMMAND : PDM2_COMMAND;
+  PDMChannel* channels = (pdm == 1) ? vanState.pdm1 : vanState.pdm2;
+  
+  // Determine which sub-message: 0xFC for channels 1-6, 0xFD for channels 7-12
+  bool isHigh = (channel > 6);
+  uint8_t b0 = isHigh ? 0xFD : 0xFC;
+  int baseChannel = isHigh ? 7 : 1;
+  
+  // Build data: current state for all 6 channels, with target channel changed
+  uint8_t data[8];
+  data[0] = b0;
+  for (int i = 0; i < 6; i++) {
+    data[i + 1] = channels[baseChannel + i].command;
   }
+  data[7] = 0xFF;  // Rolling counter
   
-  // Create bit masks for the button press pattern
-  // Each input uses 2 bits: 00=released, 01=short-to-ground, 10=short-to-power, 11=invalid
-  // We use 10 (0b10) to simulate a button press
-  uint8_t andMask = 0xFF;
-  if (byteNum == 3) andMask = 0b00111111;
-  else if (byteNum == 2) andMask = 0b11001111;
-  else if (byteNum == 1) andMask = 0b11110011;
-  else if (byteNum == 0) andMask = 0b11111100;
+  // Set the target channel
+  int byteIdx = channel - baseChannel + 1;
+  data[byteIdx] = pwmValue;
   
-  uint8_t orMask = (0b10 << (byteNum * 2));
+  Serial.printf("💡 Direct PDM%d Ch%d = %d (0x%02X): [%02X %02X %02X %02X %02X %02X %02X %02X]\n",
+    pdm, channel, pwmValue, b0,
+    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
   
-  // Build modified message with button press
-  uint8_t pressData[8];
-  memcpy(pressData, lastData, 8);
-  pressData[dataIndex] = (pressData[dataIndex] & andMask) | orMask;
-  
-  Serial.printf("🔘 Simulating button press: ID=0x%08X byte[%d] mask=0x%02X\n", canId, dataIndex, orMask);
-  
-  // Acquire CAN mutex for thread-safe access (Core 1 is reading CAN)
+  // Send on CAN bus
   if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
     Serial.println("❌ Failed to acquire CAN mutex");
     return false;
   }
   
-  // Send button press
   if (!CAN.beginExtendedPacket(canId)) {
-    Serial.println("❌ Failed to start CAN packet");
     xSemaphoreGive(canMutex);
     return false;
   }
-  CAN.write(pressData, dlc);
-  if (!CAN.endPacket()) {
-    Serial.println("❌ Failed to send button press");
-    xSemaphoreGive(canMutex);
-    return false;
-  }
-  
-  xSemaphoreGive(canMutex);  // Release during delay
-  delay(100);  // Hold button press for 100ms
-  
-  // Re-acquire for release message
-  if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-    Serial.println("❌ Failed to acquire CAN mutex for release");
-    return false;
-  }
-  
-  // Send button release (clear the bits)
-  uint8_t releaseData[8];
-  memcpy(releaseData, lastData, 8);
-  releaseData[dataIndex] = releaseData[dataIndex] & andMask;
-  
-  if (!CAN.beginExtendedPacket(canId)) {
-    Serial.println("❌ Failed to start CAN packet for release");
-    xSemaphoreGive(canMutex);
-    return false;
-  }
-  CAN.write(releaseData, dlc);
-  if (!CAN.endPacket()) {
-    Serial.println("❌ Failed to send button release");
-    xSemaphoreGive(canMutex);
-    return false;
-  }
-  
+  CAN.write(data, 8);
+  bool ok = CAN.endPacket();
   xSemaphoreGive(canMutex);
-  Serial.println("✅ Button press/release simulated");
-  return true;
-}
-
-// Press specific light buttons (from original ModeWifi code)
-bool pressCargo() {
-  return pressDigitalButton(
-    PDM1_MESSAGE,  // 0x14EF111E
-    vanState.lastPDM1inputs1to6.data,
-    vanState.lastPDM1inputs1to6.dlc,
-    6,  // byte index
-    1   // bit position (bits 2-3)
-  );
-}
-
-bool pressReading() {
-  return pressDigitalButton(
-    PDM1_MESSAGE,  // 0x14EF111E
-    vanState.lastPDM1inputs1to6.data,
-    vanState.lastPDM1inputs1to6.dlc,
-    6,  // byte index - NEED TO VERIFY THIS
-    2   // bit position - NEED TO VERIFY THIS
-  );
-}
-
-bool pressCabin() {
-  return pressDigitalButton(
-    PDM1_MESSAGE,  // 0x14EF111E
-    vanState.lastPDM1inputs1to6.data,
-    vanState.lastPDM1inputs1to6.dlc,
-    6,  // byte index
-    0   // bit position (bits 0-1)
-  );
-}
-
-bool pressAwning() {
-  Serial.printf("🎯 pressAwning() called - lastPDM1inputs1to6.dlc=%d\n", vanState.lastPDM1inputs1to6.dlc);
-  return pressDigitalButton(
-    PDM1_MESSAGE,  // 0x14EF111E
-    vanState.lastPDM1inputs1to6.data,
-    vanState.lastPDM1inputs1to6.dlc,
-    7,  // byte index
-    3   // bit position (bits 6-7)
-  );
+  
+  if (ok) {
+    // Update local state immediately so next telemetry reflects the change
+    channels[channel].command = pwmValue;
+    Serial.printf("✅ PDM%d Ch%d set to %d\n", pdm, channel, pwmValue);
+  } else {
+    Serial.println("❌ Failed to send PDM command");
+  }
+  
+  return ok;
 }
 
 // Global PDM command function (used by both web server and AWS IoT)
-// Now uses button press simulation instead of direct commands
-bool sendPDMCommand(int pdm, int channel, bool state) {
-  Serial.printf("🎮 Control request: PDM%d Ch%d→%s\n", pdm, channel, state ? "ON" : "OFF");
+// brightness: 0-100 (percentage), or -1 for toggle
+bool sendPDMCommand(int pdm, int channel, int brightness) {
+  Serial.printf("🎮 Control request: PDM%d Ch%d brightness=%d%%\n", pdm, channel, brightness);
   
-  // Only support PDM1 lights for now (channels 2,3,4,5)
-  if (pdm != 1) {
-    Serial.printf("❌ PDM%d not supported yet (only PDM1)\n", pdm);
+  if (pdm < 1 || pdm > 2 || channel < 1 || channel > 12) {
+    Serial.println("❌ Invalid PDM or channel");
     return false;
   }
   
-  // Map channels to button press functions
-  // Based on original ModeWifi and our van's wiring
-  bool success = false;
-  
-  switch (channel) {
-    case 2:  // Cargo lights
-      Serial.println("→ Pressing cargo light button");
-      success = pressCargo();
-      break;
-      
-    case 3:  // Reading lights
-      Serial.println("→ Pressing reading light button");
-      success = pressReading();
-      break;
-      
-    case 4:  // Cabin lights
-      Serial.println("→ Pressing cabin light button");
-      success = pressCabin();
-      break;
-      
-    case 5:  // Awning lights
-      Serial.println("→ Pressing awning light button");
-      success = pressAwning();
-      break;
-      
-    default:
-      Serial.printf("❌ Channel %d not mapped to a button\n", channel);
-      return false;
+  uint8_t pwmValue;
+  if (brightness < 0) {
+    // Toggle: if currently on, turn off; if off, turn full on
+    PDMChannel* channels = (pdm == 1) ? vanState.pdm1 : vanState.pdm2;
+    pwmValue = (channels[channel].command > 0) ? 0 : 255;
+  } else {
+    // Set specific brightness (0-100% mapped to 0-255)
+    pwmValue = (uint8_t)((brightness * 255) / 100);
   }
   
-  if (success) {
-    Serial.printf("✅ Button press for PDM%d Ch%d completed\n", pdm, channel);
-  }
-  
-  return success;
+  return sendDirectPDMCommand(pdm, channel, pwmValue);
 }
 
 void handleRoot() {
@@ -240,9 +153,9 @@ void handleControl() {
   
   int pdm = doc["pdm"] | 0;
   int channel = doc["channel"] | 0;
-  bool state = doc["state"] | false;
+  int brightness = doc["brightness"] | -1;  // -1 = toggle, 0-100 = set level
   
-  Serial.printf("🎛️  Web control request: PDM%d Channel %d → %s\n", pdm, channel, state ? "ON" : "OFF");
+  Serial.printf("🎛️  Web control: PDM%d Ch%d brightness=%d\n", pdm, channel, brightness);
   
   // Validate parameters
   if (pdm < 1 || pdm > 2 || channel < 1 || channel > 12) {
@@ -250,8 +163,8 @@ void handleControl() {
     return;
   }
   
-  // Send CAN command
-  bool success = sendPDMCommand(pdm, channel, state);
+  // Send direct PDM command
+  bool success = sendPDMCommand(pdm, channel, brightness);
   
   if (success) {
     server.send(200, "application/json", "{\"success\":true,\"message\":\"Command sent\"}");
@@ -331,6 +244,61 @@ void handleHVAC() {
   } else {
     server.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to send HVAC command\"}");
   }
+}
+
+// Vent fan control using ROOFFAN_CONTROL (0x19FEA603)
+// speed: 0-127, direction: 0=out, 1=in, dome: 0=closed, 4=open
+bool sendVentCommand(uint8_t speed, bool direction, uint8_t domePosition) {
+  uint8_t data[8] = {
+    2,                                        // data[0] = instance always 2
+    0b10101,                                  // data[1] = system on, fan force on, speed manual
+    speed,                                    // data[2] = fan speed 0-127
+    (uint8_t)((domePosition << 2) | (direction & 1)), // data[3] = dome + direction
+    0, 0, 0, 0                               // data[4-7] = temp/setpoint (unused)
+  };
+  
+  // Set rain sensor on and dome command
+  if (domePosition > 0) {
+    data[3] |= 0x40;  // Rain sensor on
+  }
+  
+  Serial.printf("🌀 Vent: speed=%d dir=%s dome=%d\n", speed, direction ? "in" : "out", domePosition);
+  
+  if (xSemaphoreTake(canMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+  
+  if (!CAN.beginExtendedPacket(ROOFFAN_CONTROL)) {
+    xSemaphoreGive(canMutex);
+    return false;
+  }
+  CAN.write(data, 8);
+  bool ok = CAN.endPacket();
+  xSemaphoreGive(canMutex);
+  
+  if (ok) Serial.println("✅ Vent command sent");
+  return ok;
+}
+
+void handleVent() {
+  if (server.method() != HTTP_POST) {
+    server.send(405, "application/json", "{\"success\":false,\"message\":\"Method not allowed\"}");
+    return;
+  }
+  
+  String body = server.arg("plain");
+  StaticJsonDocument<256> doc;
+  if (deserializeJson(doc, body)) {
+    server.send(400, "application/json", "{\"success\":false,\"message\":\"Invalid JSON\"}");
+    return;
+  }
+  
+  uint8_t speed = doc["speed"] | 0;
+  bool direction = doc["direction"] | false;  // false=out, true=in
+  uint8_t dome = doc["dome"] | 0;  // 0=closed, 4=open
+  
+  bool success = sendVentCommand(speed, direction, dome);
+  server.send(success ? 200 : 500, "application/json",
+    success ? "{\"success\":true,\"message\":\"Vent command sent\"}" 
+            : "{\"success\":false,\"message\":\"Failed\"}");
 }
 
 // Debug endpoint for remote CAN bus diagnostics
@@ -415,6 +383,7 @@ void setupWebServer() {
   server.on("/api/status", handleStatus);
   server.on("/api/control", handleControl);
   server.on("/api/hvac", handleHVAC);
+  server.on("/api/vent", handleVent);
   server.on("/api/debug", handleDebug);
   server.begin();
 }

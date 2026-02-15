@@ -291,7 +291,11 @@ void decodeRixens(uint32_t id, uint8_t* data, int len) {
   
   if (id == THERMOSTAT_AMBIENT_STATUS && len >= 3) {
     // Cabin/interior temperature from thermostat
-    vanState.cabinTemp = bytes2DegreesC(data[1], data[2]);
+    float temp = bytes2DegreesC(data[1], data[2]);
+    // Guard against 0xFFFF "not available" 
+    if (temp > -40.0 && temp < 80.0) {
+      vanState.cabinTemp = temp;
+    }
     vanState.lastUpdate = millis();
     
     if (!baselinesSet) {
@@ -308,6 +312,11 @@ void decodeRixens(uint32_t id, uint8_t* data, int len) {
     
     // Bytes 6-7: Voltage (LSB, MSB, divide by 10)
     float volts = (data[7] * 256 + data[6]) / 10.0;
+    
+    // Guard against 0xFFFF "not available" values (heater off)
+    if (glycolOutlet > 200.0 || glycolOutlet < -50.0) glycolOutlet = 0;
+    if (glycolInlet > 200.0 || glycolInlet < -50.0) glycolInlet = 0;
+    if (volts > 60.0 || volts < 1.0) volts = vanState.voltage;  // Keep previous
     
     // Use outlet temp as primary glycol temp
     vanState.glycolTemp = glycolOutlet;

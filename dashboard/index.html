@@ -636,7 +636,7 @@
         </div>
         
         <div class="footer">
-            Skadi Van Monitor v1.2.1 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.3.0 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -657,10 +657,6 @@
         
         let updateInterval;
         let lastCommandTime = 0;  // Track when last command was sent to avoid UI flicker
-        
-        // Local toggle state for lights (since telemetry can't reliably detect toggle state)
-        // null = use telemetry state, true/false = user-toggled state
-        let localLightStates = { cargo: null, reading: null, cabin: null, awning: null };
 
         // Authentication helpers
         function getIdToken() {
@@ -866,6 +862,21 @@
         function hasValue(v) {
             return v !== undefined && v !== null && v !== -1;
         }
+        
+        // LiFePO4 12V battery SOC estimate from voltage (Lithionics Li3)
+        // Very flat discharge curve -- rough approximation
+        function batterySOC(voltage) {
+            if (voltage >= 13.6) return 100;
+            if (voltage >= 13.4) return 99;
+            if (voltage >= 13.3) return 90;
+            if (voltage >= 13.2) return 70;
+            if (voltage >= 13.1) return 40;
+            if (voltage >= 13.0) return 30;
+            if (voltage >= 12.8) return 20;
+            if (voltage >= 12.0) return 10;
+            if (voltage >= 10.0) return 5;
+            return 0;
+        }
 
         async function sendCommand(command, parameters) {
             // Ensure we have a valid token (will auto-refresh if needed)
@@ -906,88 +917,40 @@
             const lightId = lightMapping[channel];
             if (!lightId) return;
             
-            const lightElement = document.getElementById(`light-${lightId}`);
-            if (!lightElement) return;
-            
-            const valueEl = lightElement.querySelector('.pdm-channel-value');
-            lightElement.classList.add('sending');
-            if (valueEl) valueEl.textContent = 'Sending...';
+            const el = document.getElementById(`light-${lightId}`);
+            if (el) el.textContent = '...';
             lastCommandTime = Date.now();
             
-            try {
-                const result = await sendCommand('set_pdm_channel', {
-                    pdm: pdm, channel: channel, state: true
-                });
-                
-                lightElement.classList.remove('sending');
-                
-                if (result.success) {
-                    // Toggle local state
-                    const wasOn = lightElement.classList.contains('active');
-                    localLightStates[lightId] = !wasOn;
-                    
-                    if (localLightStates[lightId]) {
-                        lightElement.classList.add('active');
-                        if (valueEl) valueEl.textContent = 'ON';
-                    } else {
-                        lightElement.classList.remove('active');
-                        if (valueEl) valueEl.textContent = 'OFF';
-                    }
-                } else {
-                    if (valueEl) valueEl.textContent = 'Failed';
-                    console.error('Command failed:', result.error);
-                }
-            } catch (error) {
-                lightElement.classList.remove('sending');
-                if (valueEl) valueEl.textContent = 'Error';
-                console.error('Exception in toggleLight:', error);
+            // Toggle: send brightness=-1 which firmware interprets as toggle
+            const result = await sendCommand('set_light', {
+                pdm: pdm, channel: channel, brightness: -1
+            });
+            
+            if (result.success && el) {
+                const wasOn = el.classList.contains('active');
+                if (wasOn) { el.classList.remove('active'); el.textContent = 'OFF'; }
+                else { el.classList.add('active'); el.textContent = 'ON'; }
+            } else if (el) {
+                el.textContent = 'Failed';
             }
         }
         
-        async function toggleAllLights() {
-            const btn = document.getElementById('allLightsBtn');
-            if (!btn) return;
-            
-            btn.classList.add('sending');
-            btn.textContent = 'SENDING...';
+        async function setLightBrightness(pdm, channel, percent) {
             lastCommandTime = Date.now();
-            
-            const lightChannels = [2, 3, 4, 5];
-            const lightMapping = {2: 'cargo', 3: 'reading', 4: 'cabin', 5: 'awning'};
-            
-            // Check if any light is currently shown as on
-            const anyOn = Object.values(lightMapping).some(id => {
-                const el = document.getElementById(`light-${id}`);
-                return el && el.classList.contains('active');
+            const result = await sendCommand('set_light', {
+                pdm: pdm, channel: channel, brightness: parseInt(percent)
             });
-            
-            const promises = lightChannels.map(channel => 
-                sendCommand('set_pdm_channel', { pdm: 1, channel: channel, state: true })
+            if (!result.success) console.error('Brightness failed:', result.error);
+        }
+        
+        async function toggleAllLights() {
+            lastCommandTime = Date.now();
+            // Send brightness=0 (off) for all light channels
+            const channels = [2, 3, 4, 5];
+            const promises = channels.map(ch => 
+                sendCommand('set_light', { pdm: 1, channel: ch, brightness: 0 })
             );
-            
-            const results = await Promise.all(promises);
-            const allOk = results.every(r => r.success);
-            
-            btn.classList.remove('sending');
-            
-            if (allOk) {
-                // Toggle all lights to opposite of current state
-                const newState = !anyOn;
-                lightChannels.forEach(channel => {
-                    const id = lightMapping[channel];
-                    localLightStates[id] = newState;
-                    const el = document.getElementById(`light-${id}`);
-                    if (el) {
-                        if (newState) el.classList.add('active'); else el.classList.remove('active');
-                        const v = el.querySelector('.pdm-channel-value');
-                        if (v) v.textContent = newState ? 'ON' : 'OFF';
-                    }
-                });
-                btn.textContent = newState ? 'ALL LIGHTS OFF' : 'ALL LIGHTS ON';
-            } else {
-                btn.textContent = 'SOME FAILED';
-                setTimeout(() => { btn.textContent = 'ALL LIGHTS TOGGLE'; }, 3000);
-            }
+            await Promise.all(promises);
         }
         
         async function sendHVACCommand(mode, tempF, fanSpeed, fanMode) {
@@ -1059,6 +1022,25 @@
                     setTimeout(() => { btn.textContent = 'HVAC ON'; }, 2000);
                 }
             }
+        }
+        
+        async function sendVentOpen() {
+            lastCommandTime = Date.now();
+            const speed = parseInt(document.getElementById('ventSpeed')?.value || 50);
+            const dir = parseInt(document.getElementById('ventDir')?.value || 0);
+            await sendCommand('set_vent', { speed: Math.round(speed * 1.27), direction: dir === 1, dome: 4 });
+        }
+        
+        async function sendVentClose() {
+            lastCommandTime = Date.now();
+            await sendCommand('set_vent', { speed: 0, direction: false, dome: 0 });
+        }
+        
+        async function sendVentSet() {
+            lastCommandTime = Date.now();
+            const speed = parseInt(document.getElementById('ventSpeed')?.value || 50);
+            const dir = parseInt(document.getElementById('ventDir')?.value || 0);
+            await sendCommand('set_vent', { speed: Math.round(speed * 1.27), direction: dir === 1, dome: 4 });
         }
         
         function handleHVACSet() {
@@ -1150,130 +1132,134 @@
             const content = document.getElementById('content');
             content.className = '';
             
-            // Light states from PDM1 command state AND feedback amps
+            // Light states from PDM command bytes (direct PDM commands update these reliably)
             const lightChannels = [
-                { channel: 2, name: 'Cargo Lights', id: 'cargo' },
-                { channel: 3, name: 'Reading Light', id: 'reading' },
-                { channel: 4, name: 'Cabin Lights', id: 'cabin' },
-                { channel: 5, name: 'Awning Lights', id: 'awning' }
+                { channel: 2, name: 'Cargo', id: 'cargo' },
+                { channel: 3, name: 'Reading', id: 'reading' },
+                { channel: 4, name: 'Cabin', id: 'cabin' },
+                { channel: 5, name: 'Awning', id: 'awning' }
             ];
             
-            let lightStates = {};
-            let anyLightOn = false;
+            let lightData = {};
             lightChannels.forEach(light => {
-                // Use local toggle state if set, otherwise fall back to telemetry
-                if (localLightStates[light.id] !== null) {
-                    lightStates[light.id] = localLightStates[light.id];
-                    if (lightStates[light.id]) anyLightOn = true;
-                } else if (data.pdm1 && data.pdm1[light.channel]) {
-                    const ch = data.pdm1[light.channel];
-                    const currentDraw = parseFloat(ch.amps) || 0;
-                    const cmdState = parseInt(ch.state) || 0;
-                    lightStates[light.id] = currentDraw > 0.01 || cmdState > 0;
-                    if (lightStates[light.id]) anyLightOn = true;
-                } else {
-                    lightStates[light.id] = false;
-                }
+                const ch = data.pdm1 && data.pdm1[light.channel];
+                const cmd = ch ? (parseInt(ch.state) || 0) : 0;
+                lightData[light.id] = { on: cmd > 0, brightness: Math.round(cmd / 2.55) };
             });
             
-            // Vitals display values
-            const batteryV = hasValue(data.battery_voltage) && data.battery_voltage > 0 ? data.battery_voltage.toFixed(1) : '--';
-            const cabinF = hasValue(data.cabin_temp) && data.cabin_temp > 0 ? celsiusToFahrenheit(data.cabin_temp).toFixed(1) : '--';
-            const freshW = hasValue(data.fresh_water) && data.fresh_water >= 0 ? Math.round(data.fresh_water) : '--';
-            const grayW = hasValue(data.gray_water) && data.gray_water >= 0 ? Math.round(data.gray_water) : '--';
-            const fuelD = hasValue(data.fuel_level) && data.fuel_level >= 0 ? Math.round(data.fuel_level) : '--';
-            
-            // AC state
+            // Vitals
+            const v = data.battery_voltage && data.battery_voltage > 0 ? data.battery_voltage : null;
+            const soc = v ? batterySOC(v) : null;
+            const cabinC = data.cabin_temp && data.cabin_temp > 0 ? data.cabin_temp : null;
+            const cabinF = cabinC ? celsiusToFahrenheit(cabinC).toFixed(0) : null;
+            const freshW = hasValue(data.fresh_water) && data.fresh_water >= 0 ? Math.round(data.fresh_water) : null;
+            const grayW = hasValue(data.gray_water) && data.gray_water >= 0 ? Math.round(data.gray_water) : null;
+            const fuelD = hasValue(data.fuel_level) && data.fuel_level >= 0 ? Math.round(data.fuel_level) : null;
             const acMode = data.ac_mode || 0;
             const acSetpoint = hasValue(data.ac_setpoint) ? celsiusToFahrenheit(data.ac_setpoint).toFixed(0) : '72';
             
+            const inputStyle = 'padding: 8px 12px; border-radius: 8px; border: 1px solid #4a5568; background: #1a202c; color: #fff; font-size: 0.95rem;';
+            const btnGreen = 'padding: 8px 20px; border-radius: 8px; border: none; background: linear-gradient(135deg, #4CAF50, #66BB6A); color: #fff; font-weight: 600; cursor: pointer;';
+            const btnRed = 'padding: 8px 20px; border-radius: 8px; border: none; background: linear-gradient(135deg, #e94560, #ff6b8a); color: #fff; font-weight: 600; cursor: pointer;';
+            
             content.innerHTML = `
-                <div class="control-card">
-                    <h2>Lights</h2>
-                    <button id="allLightsBtn" class="toggle-button ${anyLightOn ? 'on' : ''}" onclick="toggleAllLights()" style="margin-bottom: 15px;">
-                        ${anyLightOn ? 'ALL LIGHTS OFF' : 'ALL LIGHTS ON'}
-                    </button>
-                    <div class="pdm-grid" style="margin-top: 10px;">
-                        ${lightChannels.map(light => `
-                            <div class="pdm-channel ${lightStates[light.id] ? 'active' : ''}" 
-                                 id="light-${light.id}" 
-                                 onclick="toggleLight(1, ${light.channel})">
-                                <div class="pdm-channel-name">${light.name}</div>
-                                <div class="pdm-channel-value">${lightStates[light.id] ? 'ON' : 'OFF'}</div>
-                            </div>
-                        `).join('')}
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; justify-content: center;">
+                    <div class="card" style="flex: 1; min-width: 100px; padding: 12px;">
+                        <div style="font-size: 0.75rem; opacity: 0.7;">Battery</div>
+                        <div style="font-size: 1.6rem; font-weight: bold;">${v ? v.toFixed(1)+'V' : '--'}</div>
+                        ${soc !== null ? `<div style="font-size: 0.8rem; opacity: 0.7;">~${soc}%</div>` : ''}
+                    </div>
+                    <div class="card" style="flex: 1; min-width: 100px; padding: 12px;">
+                        <div style="font-size: 0.75rem; opacity: 0.7;">Cabin</div>
+                        <div style="font-size: 1.6rem; font-weight: bold;">${cabinF ? cabinF+'°F' : '--'}</div>
+                    </div>
+                    <div class="card" style="flex: 1; min-width: 80px; padding: 12px;">
+                        <div style="font-size: 0.75rem; opacity: 0.7;">Fresh</div>
+                        <div style="font-size: 1.6rem; font-weight: bold;">${freshW !== null ? freshW+'%' : '--'}</div>
+                    </div>
+                    <div class="card" style="flex: 1; min-width: 80px; padding: 12px;">
+                        <div style="font-size: 0.75rem; opacity: 0.7;">Gray</div>
+                        <div style="font-size: 1.6rem; font-weight: bold;">${grayW !== null ? grayW+'%' : '--'}</div>
+                    </div>
+                    <div class="card" style="flex: 1; min-width: 80px; padding: 12px;">
+                        <div style="font-size: 0.75rem; opacity: 0.7;">Fuel</div>
+                        <div style="font-size: 1.6rem; font-weight: bold;">${fuelD !== null ? fuelD+'%' : '--'}</div>
                     </div>
                 </div>
                 
-                <div class="control-card">
-                    <h2>Climate</h2>
-                    <button id="hvacPowerBtn" class="toggle-button ${acMode > 0 ? 'on' : ''}" onclick="toggleHVACPower()" style="margin-bottom: 15px;">
-                        ${acMode > 0 ? 'HVAC OFF' : 'HVAC ON'}
-                    </button>
-                    <div id="hvacSettings" style="display: ${acMode > 0 ? 'flex' : 'none'}; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: center; padding: 10px 0;">
+                <div class="card" style="margin-bottom: 20px; padding: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h2 style="margin: 0; border: none; padding: 0;">Lights</h2>
+                        <button onclick="toggleAllLights()" style="padding: 6px 14px; border-radius: 6px; border: 1px solid #4a5568; background: transparent; color: #fff; font-size: 0.8rem; cursor: pointer; opacity: 0.8;">All Off</button>
+                    </div>
+                    ${lightChannels.map(light => {
+                        const ld = lightData[light.id];
+                        return `
+                    <div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="width: 70px; font-size: 0.9rem;">${light.name}</div>
+                        <div class="pdm-channel ${ld.on ? 'active' : ''}" id="light-${light.id}"
+                             onclick="toggleLight(1, ${light.channel})"
+                             style="width: 50px; text-align: center; padding: 6px 10px; cursor: pointer; font-size: 0.85rem; border-radius: 8px;">
+                            ${ld.on ? 'ON' : 'OFF'}
+                        </div>
+                        <input type="range" min="0" max="100" value="${ld.brightness}" 
+                               style="flex: 1; accent-color: #e94560;"
+                               onchange="setLightBrightness(1, ${light.channel}, this.value)">
+                        <div style="width: 35px; font-size: 0.8rem; opacity: 0.7; text-align: right;">${ld.brightness}%</div>
+                    </div>`;
+                    }).join('')}
+                </div>
+                
+                <div class="card" style="margin-bottom: 20px; padding: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h2 style="margin: 0; border: none; padding: 0;">Climate</h2>
+                        <button id="hvacPowerBtn" onclick="toggleHVACPower()" 
+                                style="${acMode > 0 ? btnRed : btnGreen} font-size: 0.85rem;">
+                            ${acMode > 0 ? 'Turn Off' : 'Turn On'}
+                        </button>
+                    </div>
+                    ${acMode > 0 ? `<div style="text-align: center; margin-bottom: 12px; opacity: 0.8;">${getACModeName(acMode)} at ${acSetpoint}°F</div>` : ''}
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center;">
                         <div>
-                            <label style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 4px;">Mode</label>
-                            <select id="hvacMode" style="padding: 10px 14px; border-radius: 8px; border: 1px solid #4a5568; background: #1a202c; color: #fff; font-size: 1rem;">
+                            <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Mode</label>
+                            <select id="hvacMode" style="${inputStyle}">
                                 <option value="1" ${acMode === 1 ? 'selected' : ''}>Cool</option>
                                 <option value="2" ${acMode === 2 ? 'selected' : ''}>Heat</option>
                                 <option value="4" ${acMode === 4 ? 'selected' : ''}>Fan Only</option>
                             </select>
                         </div>
                         <div>
-                            <label style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 4px;">Temp (°F)</label>
-                            <input id="hvacTemp" type="number" min="55" max="90" value="${acSetpoint}" 
-                                   style="padding: 10px 14px; border-radius: 8px; border: 1px solid #4a5568; background: #1a202c; color: #fff; font-size: 1rem; width: 80px;">
+                            <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Temp °F</label>
+                            <input id="hvacTemp" type="number" min="55" max="90" value="${acSetpoint}" style="${inputStyle} width: 70px;">
                         </div>
                         <div>
-                            <label style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 4px;">Fan</label>
-                            <select id="hvacFan" style="padding: 10px 14px; border-radius: 8px; border: 1px solid #4a5568; background: #1a202c; color: #fff; font-size: 1rem;">
+                            <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Fan</label>
+                            <select id="hvacFan" style="${inputStyle}">
                                 <option value="0">Auto</option>
                                 <option value="1">On</option>
                             </select>
                         </div>
-                        <button id="hvacSetBtn" onclick="handleHVACSet()" 
-                                style="padding: 10px 24px; border-radius: 8px; border: none; background: linear-gradient(135deg, #4CAF50 0%, #66BB6A 100%); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer;">
-                            Set
-                        </button>
+                        <button id="hvacSetBtn" onclick="handleHVACSet()" style="${btnGreen}">Set</button>
                     </div>
-                    ${acMode > 0 ? `<div style="text-align: center; margin-top: 10px; opacity: 0.8; font-size: 0.9rem;">Currently: ${getACModeName(acMode)} at ${acSetpoint}°F</div>` : ''}
                 </div>
                 
-                <div class="vitals-section">
-                    <div class="card">
-                        <h2>Battery</h2>
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 3rem; font-weight: bold;">${batteryV}</div>
-                            <div style="opacity: 0.8;">${batteryV !== '--' ? 'Volts' : 'No data'}</div>
+                <div class="card" style="margin-bottom: 20px; padding: 20px;">
+                    <h2 style="margin: 0 0 12px 0; border: none; padding: 0;">Vent Fan</h2>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center;">
+                        <button onclick="sendVentOpen()" style="${btnGreen}">Open</button>
+                        <button onclick="sendVentClose()" style="${btnRed}">Close</button>
+                        <div>
+                            <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Speed</label>
+                            <input id="ventSpeed" type="range" min="0" max="100" value="50" style="width: 120px; accent-color: #e94560;">
                         </div>
-                    </div>
-                    <div class="card">
-                        <h2>Cabin Temp</h2>
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 3rem; font-weight: bold;">${cabinF}</div>
-                            <div style="opacity: 0.8;">${cabinF !== '--' ? '°F' : 'HVAC off'}</div>
+                        <div>
+                            <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Direction</label>
+                            <select id="ventDir" style="${inputStyle}">
+                                <option value="0">Out</option>
+                                <option value="1">In</option>
+                            </select>
                         </div>
-                    </div>
-                    <div class="card">
-                        <h2>Fresh Water</h2>
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 3rem; font-weight: bold;">${freshW}</div>
-                            <div style="opacity: 0.8;">${freshW !== '--' ? '%' : 'No data'}</div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h2>Gray Water</h2>
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 3rem; font-weight: bold;">${grayW}</div>
-                            <div style="opacity: 0.8;">${grayW !== '--' ? '%' : 'No data'}</div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h2>Diesel Fuel</h2>
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 3rem; font-weight: bold;">${fuelD}</div>
-                            <div style="opacity: 0.8;">${fuelD !== '--' ? '%' : 'Heater off'}</div>
-                        </div>
+                        <button onclick="sendVentSet()" style="${btnGreen}">Set</button>
                     </div>
                 </div>
             `;
@@ -1297,9 +1283,13 @@
         // Expose functions to global scope for onclick handlers in dynamically generated HTML
         window.toggleLight = toggleLight;
         window.toggleAllLights = toggleAllLights;
+        window.setLightBrightness = setLightBrightness;
         window.toggleHVACPower = toggleHVACPower;
         window.handleHVACSet = handleHVACSet;
         window.sendACOff = sendACOff;
+        window.sendVentOpen = sendVentOpen;
+        window.sendVentClose = sendVentClose;
+        window.sendVentSet = sendVentSet;
         }
         
         // PWA Install Prompt - runs regardless of authentication

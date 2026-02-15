@@ -324,44 +324,27 @@ public:
     
     Serial.printf("   Command: %s\n", command);
     
-    // Handle PDM channel control
-    if (strcmp(command, "set_pdm_channel") == 0) {
+    // Handle light control with brightness (direct PDM command)
+    if (strcmp(command, "set_light") == 0 || strcmp(command, "set_pdm_channel") == 0) {
       int pdm = doc["parameters"]["pdm"] | 1;
       int channel = doc["parameters"]["channel"] | 1;
-      bool state = doc["parameters"]["state"] | false;
+      int brightness = doc["parameters"]["brightness"] | -1;  // -1=toggle, 0-100=%
       
       if (pdm < 1 || pdm > 2 || channel < 1 || channel > 12) {
-        Serial.println("❌ Invalid PDM or channel number");
         publishCommandResponse(false, "Invalid PDM or channel", command);
         return;
       }
       
-      Serial.printf("   PDM%d Channel %d -> TOGGLE (button simulation, state param ignored)\n", pdm, channel);
+      Serial.printf("   PDM%d Ch%d brightness=%d\n", pdm, channel, brightness);
       
-      // Use button press simulation for PDM1 lights
-      // NOTE: We ignore the 'state' parameter because these are momentary switches
-      // Each button press toggles the light regardless of requested state
-      bool success = false;
-      if (pdm == 1) {
-        if (channel == 2) success = pressCargo();       // Cargo lights
-        else if (channel == 3) success = pressReading(); // Reading lights  
-        else if (channel == 4) success = pressCabin();   // Cabin lights
-        else if (channel == 5) success = pressAwning();  // Awning lights
-        else {
-          Serial.printf("⚠️  PDM1 Channel %d not supported yet\n", channel);
-          publishCommandResponse(false, "Channel not supported", command);
-          return;
-        }
-      } else {
-        Serial.println("⚠️  PDM2 not supported yet");
-        publishCommandResponse(false, "PDM2 not supported", command);
-        return;
-      }
-      
+      bool success = sendPDMCommand(pdm, channel, brightness);
       if (success) {
-        publishCommandResponse(true, "Button press simulated", command);
+        PDMChannel* channels = (pdm == 1) ? vanState.pdm1 : vanState.pdm2;
+        char msg[64];
+        sprintf(msg, "Ch%d set to %d", channel, channels[channel].command);
+        publishCommandResponse(true, msg, command);
       } else {
-        publishCommandResponse(false, "Failed to simulate button press", command);
+        publishCommandResponse(false, "Failed to send PDM command", command);
       }
     }
     // Handle AC/HVAC control
@@ -378,6 +361,15 @@ public:
       
       bool success = sendACCommand(mode, fanMode, fanSpeed, tempC);
       publishCommandResponse(success, success ? "AC command sent" : "AC command failed", command);
+    }
+    // Vent fan control
+    else if (strcmp(command, "set_vent") == 0) {
+      uint8_t speed = doc["parameters"]["speed"] | 0;
+      bool direction = doc["parameters"]["direction"] | false;
+      uint8_t dome = doc["parameters"]["dome"] | 0;
+      
+      bool success = sendVentCommand(speed, direction, dome);
+      publishCommandResponse(success, success ? "Vent command sent" : "Vent command failed", command);
     }
     else if (strcmp(command, "ac_off") == 0) {
       bool success = sendACCommand(0, 0, 0, 20.0);
