@@ -633,7 +633,7 @@
         <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.3.5 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.3.6 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -653,8 +653,9 @@
         };
         
         let updateInterval;
-        let lastCommandTime = 0;  // Track when last command was sent to avoid UI flicker
-        let hvacIsOn = false;      // Track HVAC on/off state from telemetry
+        let lastCommandTime = 0;      // Track when last command was sent to avoid UI flicker
+        let lastHVACCommandTime = 0;  // Separate longer cooldown for HVAC state
+        let hvacIsOn = false;          // Track HVAC on/off state from telemetry
 
         // Authentication helpers
         function getIdToken() {
@@ -948,6 +949,7 @@
             const btn = document.getElementById('hvacSetBtn');
             if (btn) { btn.classList.add('sending'); btn.textContent = 'Sending...'; }
             lastCommandTime = Date.now();
+            lastHVACCommandTime = Date.now();
             
             const result = await sendCommand('set_ac', {
                 mode: mode, temp_f: tempF, fan_speed: 64, fan_mode: 0
@@ -972,6 +974,7 @@
             
             btn.textContent = 'Sending...';
             lastCommandTime = Date.now();
+            lastHVACCommandTime = Date.now();
             
             if (hvacIsOn) {
                 // Turn OFF
@@ -1141,7 +1144,12 @@
             const fuelD = hasValue(data.fuel_level) && data.fuel_level >= 0 ? Math.round(data.fuel_level) : null;
             const acMode = data.ac_mode || 0;
             const acSetpoint = hasValue(data.ac_setpoint) ? celsiusToFahrenheit(data.ac_setpoint).toFixed(0) : '72';
-            hvacIsOn = acMode > 0;
+            // Only let telemetry override HVAC state if no recent HVAC command (60s cooldown)
+            // The thermostat CAN response is slow -- trust local state after toggle
+            const hvacCooldown = Date.now() - lastHVACCommandTime < 60000;
+            if (!hvacCooldown) {
+                hvacIsOn = acMode > 0;
+            }
             
             const inputStyle = 'padding: 8px 12px; border-radius: 8px; border: 1px solid #4a5568; background: #1a202c; color: #fff; font-size: 0.95rem;';
             const btnGreen = 'padding: 8px 20px; border-radius: 8px; border: none; background: linear-gradient(135deg, #4CAF50, #66BB6A); color: #fff; font-weight: 600; cursor: pointer;';
@@ -1195,14 +1203,14 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <h2 style="margin: 0; border: none; padding: 0;">Climate</h2>
                         <button id="hvacPowerBtn" onclick="toggleHVACPower()" 
-                                style="${acMode > 0 ? btnRed : btnGreen} font-size: 0.85rem;">
-                            ${acMode > 0 ? 'Turn Off' : 'Turn On'}
+                                style="${hvacIsOn ? btnRed : btnGreen} font-size: 0.85rem;">
+                            ${hvacIsOn ? 'Turn Off' : 'Turn On'}
                         </button>
                     </div>
                     <div id="hvacStatus" style="text-align: center; margin-bottom: 12px; opacity: 0.8; font-size: 1.1rem;">
-                        ${acMode > 0 ? `${getACModeName(acMode)} at ${acSetpoint}°F` : 'Off'}
+                        ${hvacIsOn ? (acMode > 0 ? `${getACModeName(acMode)} at ${acSetpoint}°F` : 'On') : 'Off'}
                     </div>
-                    <div id="hvacSettings" style="display: ${acMode > 0 ? 'flex' : 'none'}; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center;">
+                    <div id="hvacSettings" style="display: ${hvacIsOn ? 'flex' : 'none'}; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center;">
                         <div>
                             <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 3px;">Mode</label>
                             <select id="hvacMode" style="${inputStyle}">
