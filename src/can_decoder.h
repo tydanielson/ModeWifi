@@ -119,13 +119,19 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
   }
   
   // Channels 1-6 feedback (current draw in amps)
+  // Skip messages where all feedback bytes are zero (periodic "no data" messages)
   if (b0 == 0xF9 || b0 == 0xC9 || b0 == 0x39) {
-    for (int i = 1; i <= 6; i++) {
-      float amps = feedbackAmps(data, i);
-      if (pdm == 1) {
-        vanState.pdm1[i].feedbackAmps = amps;
-      } else {
-        vanState.pdm2[i].feedbackAmps = amps;
+    bool hasData = false;
+    for (int i = 2; i <= 7; i++) { if (data[i] != 0) { hasData = true; break; } }
+    
+    if (hasData) {
+      for (int i = 1; i <= 6; i++) {
+        float amps = feedbackAmps(data, i);
+        if (pdm == 1) {
+          vanState.pdm1[i].feedbackAmps = amps;
+        } else {
+          vanState.pdm2[i].feedbackAmps = amps;
+        }
       }
     }
     vanState.lastUpdate = millis();
@@ -149,12 +155,17 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
   
   // Channels 7-12 feedback
   else if (b0 == 0x0A || b0 == 0xCA || b0 == 0xFA) {
-    for (int i = 7; i <= 12; i++) {
-      float amps = feedbackAmps(data, i);
-      if (pdm == 1) {
-        vanState.pdm1[i].feedbackAmps = amps;
-      } else {
-        vanState.pdm2[i].feedbackAmps = amps;
+    bool hasData = false;
+    for (int i = 2; i <= 7; i++) { if (data[i] != 0) { hasData = true; break; } }
+    
+    if (hasData) {
+      for (int i = 7; i <= 12; i++) {
+        float amps = feedbackAmps(data, i);
+        if (pdm == 1) {
+          vanState.pdm1[i].feedbackAmps = amps;
+        } else {
+          vanState.pdm2[i].feedbackAmps = amps;
+        }
       }
     }
     vanState.lastUpdate = millis();

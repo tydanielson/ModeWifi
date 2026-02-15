@@ -1134,7 +1134,9 @@
             lightChannels.forEach(light => {
                 const ch = data.pdm1 && data.pdm1[light.channel];
                 const cmd = ch ? (parseInt(ch.state) || 0) : 0;
-                lightData[light.id] = { on: cmd > 0, brightness: Math.round(cmd / 2.55) };
+                const amps = ch ? (parseFloat(ch.amps) || 0) : 0;
+                // Light is ON if drawing current (amps > 0) OR command state says on
+                lightData[light.id] = { on: amps > 0.01 || cmd > 0, amps: amps };
             });
             
             // Vitals
