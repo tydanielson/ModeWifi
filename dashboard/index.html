@@ -636,7 +636,7 @@
         </div>
         
         <div class="footer">
-            Skadi Van Monitor v1.1.0 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.1.1 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -1232,6 +1232,12 @@
         document.getElementById('vanName').textContent = VAN_NAME;
         fetchTelemetry();
         updateInterval = setInterval(fetchTelemetry, 5000); // Update every 5 seconds
+        
+        // Expose functions to global scope for onclick handlers in dynamically generated HTML
+        window.toggleLight = toggleLight;
+        window.toggleAllLights = toggleAllLights;
+        window.handleHVACSet = handleHVACSet;
+        window.sendACOff = sendACOff;
         }
         
         // PWA Install Prompt - runs regardless of authentication
