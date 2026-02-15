@@ -253,18 +253,27 @@ bool sendACCommand(uint8_t operatingMode, uint8_t fanMode, uint8_t fanSpeed, flo
   uint8_t spHi = (uint8_t)((encoded >> 8) & 0xFF);
   
   // Place setpoint in correct bytes based on mode:
-  //   Heat (mode 2): bytes 3-4 = heat setpoint, bytes 5-6 = 0xFF (no change)
-  //   Cool (mode 1): bytes 3-4 = 0xFF (no change), bytes 5-6 = cool setpoint
-  //   Off  (mode 0): both setpoints don't matter
+  //   Heat (mode 2): bytes 3-4 = heat setpoint, bytes 5-6 = no change
+  //   Cool (mode 1): bytes 3-4 = no change, bytes 5-6 = cool setpoint
+  //   Auto (mode 3): both setpoints set to same temp
+  //   Off  (mode 0): both = no change
   uint8_t heatLo, heatHi, coolLo, coolHi;
   if (operatingMode == 2) {
-    // Heat mode: user temp goes in heat setpoint
+    // Heat only: temp in heat setpoint
     heatLo = spLo; heatHi = spHi;
     coolLo = 0xFF; coolHi = 0xFF;
-  } else {
-    // Cool mode (or off/auto): user temp goes in cool setpoint
+  } else if (operatingMode == 1) {
+    // Cool only: temp in cool setpoint
     heatLo = 0xFF; heatHi = 0xFF;
     coolLo = spLo; coolHi = spHi;
+  } else if (operatingMode == 3) {
+    // Auto (both): set both setpoints to same temp
+    heatLo = spLo; heatHi = spHi;
+    coolLo = spLo; coolHi = spHi;
+  } else {
+    // Off or unknown: no change
+    heatLo = 0xFF; heatHi = 0xFF;
+    coolLo = 0xFF; coolHi = 0xFF;
   }
   
   uint8_t data[8] = {

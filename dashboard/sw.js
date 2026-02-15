@@ -1,5 +1,5 @@
 // Update this version number whenever you want to force a cache refresh
-const CACHE_NAME = 'skadi-van-v1.3.7';
+const CACHE_NAME = 'skadi-van-v1.4.0';
 const urlsToCache = [
   '/index.html',
   '/login.html',
