@@ -66,6 +66,10 @@ struct VanState {
   float freshWaterLevel = -1;
   float grayWaterLevel = -1;
   
+  // PDM sub-message tracking (debug: which b0 types are we seeing?)
+  uint32_t pdm1SubTypeCounts[16] = {0};  // Count of each b0>>4 nibble for PDM1_MSG
+  uint8_t lastPdm1FeedbackData[8] = {0}; // Last 0xF9/0xC9 raw data
+  
   // AC state (from THERMOSTAT_STATUS_1)
   uint8_t acOperatingMode = 0;  // 0=off, 1=cool, 2=heat, 3=auto, 4=fan
   uint8_t acFanMode = 0;        // 0=auto, 1=always on

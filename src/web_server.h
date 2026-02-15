@@ -346,6 +346,36 @@ void handleDebug() {
   json += "\"glycol_temp\":" + String(vanState.glycolTemp, 1) + ",";
   json += "\"cabin_temp\":" + String(vanState.cabinTemp, 1) + ",";
   
+  // PDM1 sub-message type distribution (high nibble counts)
+  json += "\"pdm1_b0_counts\":{";
+  const char* nibbleNames[] = {"0x0_","0x1_","0x2_","0x3_","0x4_","0x5_","0x6_","0x7_","0x8_","0x9_","0xA_","0xB_","0xC_","0xD_","0xE_","0xF_"};
+  bool firstNibble = true;
+  for (int i = 0; i < 16; i++) {
+    if (vanState.pdm1SubTypeCounts[i] > 0) {
+      if (!firstNibble) json += ",";
+      json += "\"" + String(nibbleNames[i]) + "\":" + String(vanState.pdm1SubTypeCounts[i]);
+      firstNibble = false;
+    }
+  }
+  json += "},";
+  
+  // Last raw 0xF9/0xC9 feedback data for PDM1
+  json += "\"pdm1_feedback_raw\":\"";
+  for (int i = 0; i < 8; i++) {
+    if (i > 0) json += " ";
+    if (vanState.lastPdm1FeedbackData[i] < 0x10) json += "0";
+    json += String(vanState.lastPdm1FeedbackData[i], HEX);
+  }
+  json += "\",";
+  
+  // PDM1 amps
+  json += "\"pdm1_amps\":[";
+  for (int i = 1; i <= 12; i++) {
+    if (i > 1) json += ",";
+    json += String(vanState.pdm1[i].feedbackAmps, 3);
+  }
+  json += "],";
+  
   // Known CAN IDs to check for
   json += "\"known_ids\":{";
   json += "\"PDM1_CMD\":\"0x" + String(PDM1_COMMAND, HEX) + "\",";

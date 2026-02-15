@@ -266,8 +266,8 @@ void loop() {
         Serial.println("]");
       }
       
-      // Always decode low-frequency important messages (Rixen, thermostat, tank)
-      // These are infrequent and we never want to miss one
+      // Decode ALL messages -- no changed filter
+      // The changed filter was causing us to miss feedback data
       if (msgId == RIXENS_GLYCOL || msgId == RIXENS_RETURN3 || msgId == RIXENS_RETURN4 || 
           msgId == RIXENS_RETURN1 || msgId == RIXENS_RETURN2 || msgId == RIXENS_RETURN6 ||
           msgId == THERMOSTAT_AMBIENT_STATUS) {
@@ -276,14 +276,10 @@ void loop() {
         decodeTankLevel(msgId, data, dataLen);
       } else if (msgId == THERMOSTAT_STATUS_1) {
         decodeThermostatStatus(msgId, data, dataLen);
-      }
-      // High-frequency PDM messages: only decode when data changes (reduces CPU load)
-      else if (changed || !baselinesSet) {
-        if (msgId == PDM1_COMMAND || msgId == PDM2_COMMAND) {
-          decodePDMCommand(msgId, data, dataLen);
-        } else if (msgId == PDM1_MESSAGE || msgId == PDM2_MESSAGE) {
-          decodePDMStatus(msgId, data, dataLen);
-        }
+      } else if (msgId == PDM1_COMMAND || msgId == PDM2_COMMAND) {
+        decodePDMCommand(msgId, data, dataLen);
+      } else if (msgId == PDM1_MESSAGE || msgId == PDM2_MESSAGE) {
+        decodePDMStatus(msgId, data, dataLen);
       }
     }
     

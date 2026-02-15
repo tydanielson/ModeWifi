@@ -103,8 +103,15 @@ void decodePDMStatus(uint32_t id, uint8_t* data, int len) {
   
   uint8_t b0 = data[0];
   
+  // Track sub-message types for PDM1 (debug)
+  if (pdm == 1) {
+    vanState.pdm1SubTypeCounts[b0 >> 4]++;  // Count by high nibble
+  }
+  
   // Channels 1-6 feedback (current draw in amps)
   if (b0 == 0xF9 || b0 == 0xC9 || b0 == 0x39) {
+    // Save raw data for debugging
+    if (pdm == 1) memcpy(vanState.lastPdm1FeedbackData, data, 8);
     for (int i = 1; i <= 6; i++) {
       float amps = feedbackAmps(data, i);
       if (pdm == 1) {
