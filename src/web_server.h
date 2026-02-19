@@ -174,8 +174,14 @@ void handleStatus() {
   json += "\"voltage\":" + String(vanState.voltage, 1) + ",";
   json += "\"temp\":" + String(vanState.glycolTemp, 1) + ",";
   json += "\"cabin_temp\":" + String(vanState.cabinTemp, 1) + ",";
+  json += "\"cabin_temp_f\":" + String(vanState.cabinTemp * 9.0/5.0 + 32.0, 1) + ",";
   json += "\"fuel\":" + String(vanState.fuelLevel) + ",";
+  json += "\"fresh_water\":" + String(vanState.freshWaterLevel, 1) + ",";
+  json += "\"gray_water\":" + String(vanState.grayWaterLevel, 1) + ",";
   json += "\"fanSpeed\":" + String(vanState.fanSpeed) + ",";
+  json += "\"heat_source\":" + String(vanState.heatSource) + ",";
+  json += "\"ac_mode\":" + String(vanState.acOperatingMode) + ",";
+  json += "\"ac_setpoint\":" + String(vanState.acSetpointCool * 9.0/5.0 + 32.0, 1) + ",";
   
   json += "\"pdm1\":[";
   for (int i = 1; i <= 12; i++) {
