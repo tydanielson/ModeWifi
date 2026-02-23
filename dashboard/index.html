@@ -633,7 +633,7 @@
         <div id="webUpdate" style="display:none;">--:--</div>
         
         <div class="footer">
-            Skadi Van Monitor v1.4.1 • Built with ❤️ for vanlife
+            Skadi Van Monitor v1.4.2 • Built with ❤️ for vanlife
         </div>
     </div>
 
@@ -1214,7 +1214,7 @@
             // Vitals
             const v = data.battery_voltage && data.battery_voltage > 0 ? data.battery_voltage : null;
             const soc = v ? batterySOC(v) : null;
-            const cabinC = data.cabin_temp && data.cabin_temp > 0 ? data.cabin_temp : null;
+            const cabinC = hasValue(data.cabin_temp) && data.cabin_temp > -40 && data.cabin_temp !== 0 ? data.cabin_temp : null;
             const cabinF = cabinC ? celsiusToFahrenheit(cabinC).toFixed(0) : null;
             const freshW = hasValue(data.fresh_water) && data.fresh_water >= 0 ? Math.round(data.fresh_water) : null;
             const grayW = hasValue(data.gray_water) && data.gray_water >= 0 ? Math.round(data.gray_water) : null;
